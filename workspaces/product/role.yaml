@@ -1,0 +1,34 @@
+role: product-manager
+
+# 可以 claim 的 exclusive fact types
+claims:
+  - requirement.*
+  - feature.*
+  - clarification.*
+
+# 允许 publish 的 fact types（白名单）
+allowed_publish:
+  - prd.published
+  - task.frontend.needed
+  - task.backend.needed
+  - task.test.needed
+  - requirement.updated
+  - feature.released
+
+# 被动收集哪些 broadcast 上下文
+context_interests:
+  - code.frontend.completed
+  - code.backend.completed
+  - api.contract.published
+  - test.execution.completed
+  - quality.approved
+  - bug.found
+
+# 完成任务后建议发布的结果
+on_complete:
+  - fact_type: prd.published
+    semantic_kind: resolution
+    mode: broadcast
+
+max_retries: 2
+max_tool_rounds: 50

@@ -1,0 +1,27 @@
+role: qa-tester
+
+claims:
+  - task.test.*
+  - bug.verify.*
+
+allowed_publish:
+  - test.case.created
+  - test.execution.completed
+  - bug.found
+  - quality.report.published
+  - quality.approved
+
+context_interests:
+  - prd.published
+  - requirement.created
+  - api.contract.published
+  - code.backend.completed
+  - code.frontend.completed
+
+on_complete:
+  - fact_type: test.execution.completed
+    semantic_kind: resolution
+    mode: broadcast
+
+max_retries: 2
+max_tool_rounds: 50

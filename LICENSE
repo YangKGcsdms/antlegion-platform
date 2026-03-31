@@ -1,0 +1,51 @@
+# AntLegion Bus License
+
+## Dual License
+
+This project is available under a dual license:
+
+- **Open Source**: Apache License 2.0
+- **Commercial**: Contact for enterprise licensing
+
+---
+
+## Apache License 2.0
+
+Copyright 2025-2026 Carter.Yang
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+---
+
+## Commercial License
+
+The Apache 2.0 license above covers open source use. Commercial use
+requires a separate commercial license if:
+
+- You offer AntLegion Bus as a hosted service (SaaS)
+- You embed AntLegion Bus in a commercial product
+- You need enterprise support, SLA, or custom features
+
+For commercial licensing inquiries, contact: [yangkg9295@gmail.com]
+
+---
+
+## Why Dual License?
+
+This model allows:
+
+1. **Open Source Community**: Free use, modification, and distribution
+2. **Sustainable Development**: Revenue from commercial users funds ongoing development
+3. **Enterprise Features**: Priority support, advanced features, and SLA for commercial customers
+
+This is the same model used by GitLab, MySQL, Qt, and other successful open source projects.

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.data/
+*.jsonl
+*.log
+factclaw-bus.json
+.env
+.env.*
