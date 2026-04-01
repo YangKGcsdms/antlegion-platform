@@ -91,7 +91,7 @@ export interface ResilienceConfig {
 export interface PermissionConfig {
   enabled: boolean;
   policyFile: string;
-  defaultLevel: "unrestricted" | "supervised" | "restricted" | "sandboxed";
+  defaultLevel: "allow" | "deny";
 }
 
 export interface AntLegionConfig {

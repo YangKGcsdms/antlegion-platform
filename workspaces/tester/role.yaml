@@ -18,10 +18,5 @@ context_interests:
   - code.backend.completed
   - code.frontend.completed
 
-on_complete:
-  - fact_type: test.execution.completed
-    semantic_kind: resolution
-    mode: broadcast
-
 max_retries: 2
 max_tool_rounds: 50

@@ -24,11 +24,5 @@ context_interests:
   - quality.approved
   - bug.found
 
-# 完成任务后建议发布的结果
-on_complete:
-  - fact_type: prd.published
-    semantic_kind: resolution
-    mode: broadcast
-
 max_retries: 2
 max_tool_rounds: 50

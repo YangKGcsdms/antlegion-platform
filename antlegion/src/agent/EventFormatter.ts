@@ -9,6 +9,8 @@ export function formatEvents(
   events: BusEvent[],
   dropped: number,
   causationMemory: string,
+  /** Runtime pre-claimed 的 fact_id 集合 */
+  preClaimedIds?: Set<string>,
 ): string {
   const lines: string[] = [];
 
@@ -32,6 +34,12 @@ export function formatEvents(
       lines.push(`- mode: ${f.mode}`);
       lines.push(`- state: ${f.state}`);
       lines.push(`- priority: ${f.priority}`);
+
+      // 标注 pre-claimed 状态
+      if (preClaimedIds?.has(f.fact_id)) {
+        lines.push(`- claim_status: PRE-CLAIMED (已由 Runtime 认领，直接开始工作，无需调用 legion_bus_claim)`);
+      }
+
       if (f.semantic_kind) lines.push(`- semantic_kind: ${f.semantic_kind}`);
       if (f.parent_fact_id) lines.push(`- parent_fact_id: ${f.parent_fact_id}`);
       if (f.causation_depth > 0) lines.push(`- causation_depth: ${f.causation_depth}`);

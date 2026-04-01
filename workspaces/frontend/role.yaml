@@ -10,18 +10,12 @@ allowed_publish:
   - code.frontend.component.created
   - code.frontend.page.created
   - bug.fixed
-  - code.review.needed
 
 context_interests:
   - prd.published
   - requirement.created
   - api.contract.published
   - code.backend.completed
-
-on_complete:
-  - fact_type: code.frontend.completed
-    semantic_kind: resolution
-    mode: broadcast
 
 max_retries: 3
 max_tool_rounds: 50

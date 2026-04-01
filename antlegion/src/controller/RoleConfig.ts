@@ -5,18 +5,11 @@
  * - 可以 claim 哪些 fact type
  * - 可以 publish 哪些 fact type（白名单）
  * - 关注哪些 broadcast fact 作为上下文
- * - 任务完成后自动发布的结果 facts
  * - 失败重试策略
  */
 
 import fs from "node:fs";
 import path from "node:path";
-
-export interface ResultFactConfig {
-  fact_type: string;
-  semantic_kind: string;
-  mode: string;
-}
 
 export interface RoleConfigData {
   role: string;
@@ -26,8 +19,6 @@ export interface RoleConfigData {
   allowed_publish: string[];
   /** 关注的 broadcast fact types（收入 ContextBuffer） */
   context_interests: string[];
-  /** 任务完成后自动发布的结果 facts */
-  on_complete: ResultFactConfig[];
   /** 最大重试次数 */
   max_retries: number;
   /** 最大工具调用轮次 (覆盖 DEFAULT_AGENT_CONFIG) */
@@ -39,7 +30,6 @@ const DEFAULT_ROLE_CONFIG: RoleConfigData = {
   claims: ["*"],
   allowed_publish: ["*"],
   context_interests: [],
-  on_complete: [],
   max_retries: 2,
   max_tool_rounds: 50,
 };
@@ -61,9 +51,10 @@ export class RoleConfig {
     return this.data.allowed_publish.some((p) => matchPattern(p, factType));
   }
 
-  /** 任务完成后要发布的结果 facts */
-  get resultFacts(): ResultFactConfig[] {
-    return this.data.on_complete;
+  /** 判断一个 broadcast fact_type 是否在此角色的关注范围内 */
+  isContextInterest(factType: string): boolean {
+    if (this.data.context_interests.length === 0) return true; // 未配置则全部接收
+    return this.data.context_interests.some((p) => matchPattern(p, factType));
   }
 
   get maxRetries(): number {

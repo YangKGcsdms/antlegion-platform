@@ -7,6 +7,7 @@
  */
 
 import type { Fact, BusEvent } from "../types/protocol.js";
+import { matchPattern } from "./RoleConfig.js";
 
 export interface BufferedFact {
   fact: Fact;
@@ -18,14 +19,25 @@ export class ContextBuffer {
   private buffer = new Map<string, BufferedFact[]>();
   private maxPerType: number;
   private ttlMs: number;
+  /** 角色关注的 broadcast fact type patterns（空数组 = 全部接收） */
+  private contextInterests: string[];
 
-  constructor(options?: { maxPerType?: number; ttlMs?: number }) {
+  constructor(options?: { maxPerType?: number; ttlMs?: number; contextInterests?: string[] }) {
     this.maxPerType = options?.maxPerType ?? 10;
     this.ttlMs = options?.ttlMs ?? 3600_000; // 1 hour
+    this.contextInterests = options?.contextInterests ?? [];
   }
 
-  /** 收集一个 broadcast fact */
+  /** 判断一个 fact_type 是否在角色关注范围内 */
+  private isRelevant(factType: string): boolean {
+    if (this.contextInterests.length === 0) return true;
+    return this.contextInterests.some((p) => matchPattern(p, factType));
+  }
+
+  /** 收集一个 broadcast fact（仅收集角色关注的类型） */
   add(fact: Fact): void {
+    if (!this.isRelevant(fact.fact_type)) return;
+
     const list = this.buffer.get(fact.fact_type) ?? [];
     list.push({ fact, receivedAt: Date.now() });
 
@@ -36,7 +48,7 @@ export class ContextBuffer {
     this.buffer.set(fact.fact_type, list);
   }
 
-  /** 从事件列表中提取所有 broadcast facts 并收集 */
+  /** 从事件列表中提取所有 broadcast facts 并收集（按 context_interests 过滤） */
   collectBroadcasts(events: BusEvent[]): BusEvent[] {
     const exclusive: BusEvent[] = [];
     for (const event of events) {

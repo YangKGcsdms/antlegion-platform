@@ -1,6 +1,8 @@
 /**
- * PermissionManager — 工具执行权限检查
- * 在 ToolRegistry.execute() 中作为前置闸门
+ * PermissionManager — 工具执行权限检查（简化为 allow/deny）
+ *
+ * antlegion agent 自主运行，不需要 supervised/sandboxed 等交互式权限等级。
+ * 只需要判断：这个工具，这个角色能不能用。
  */
 
 import fs from "node:fs";
@@ -31,7 +33,12 @@ export class PermissionManager {
     }
   }
 
-  /** 检查工具的权限级别，精确匹配 > 前缀通配 > 全通配 > defaultLevel */
+  /** 检查工具是否允许执行：精确匹配 > 前缀通配 > 全通配 > defaultLevel */
+  isAllowed(toolName: string): boolean {
+    return this.check(toolName) === "allow";
+  }
+
+  /** 返回工具的权限级别 */
   check(toolName: string): PermissionLevel {
     let exactMatch: PermissionLevel | null = null;
     let prefixMatch: PermissionLevel | null = null;
@@ -53,17 +60,4 @@ export class PermissionManager {
   get ruleCount(): number {
     return this.policy.rules.length;
   }
-}
-
-function matchPattern(pattern: string, toolName: string): boolean {
-  if (pattern === "*") return true;
-  if (pattern === toolName) return true;
-
-  // 简单通配: "legion_bus_*" 匹配 "legion_bus_publish"
-  if (pattern.endsWith("*")) {
-    const prefix = pattern.slice(0, -1);
-    return toolName.startsWith(prefix);
-  }
-
-  return false;
 }

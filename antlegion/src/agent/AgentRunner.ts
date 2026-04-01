@@ -1,15 +1,15 @@
 /**
  * AgentRunner — LLM + tool use 循环
- * 见 DESIGN.md §11
+ *
+ * 纯粹的 LLM 交互循环：发送消息 → 处理 tool_use → 收集 tool_result → 循环
+ * 所有横切关注点（计量、审计、权限）通过 Provider 包装和 Tool 中间件注入，
+ * AgentRunner 本身不依赖任何 observability 模块。
  */
 
 import type { LlmProvider } from "../providers/types.js";
 import type { ToolRegistry, ToolContext } from "../tools/registry.js";
 import type { ContentBlock, ToolUseBlock } from "../types/messages.js";
 import type { Session } from "./Session.js";
-import type { MetricsCollector } from "../observability/MetricsCollector.js";
-import type { AuditLog } from "../observability/AuditLog.js";
-import { estimateCost } from "../observability/CostCalculator.js";
 
 export interface RunResult {
   content: ContentBlock[];
@@ -17,62 +17,22 @@ export interface RunResult {
 }
 
 export class AgentRunner {
-  private metrics?: MetricsCollector;
-  private auditLog?: AuditLog;
-
   constructor(
     private provider: LlmProvider,
     private toolRegistry: ToolRegistry,
     private toolContext: ToolContext,
     private model: string,
     private maxToolRounds: number,
-  ) {
-    this.metrics = toolContext.metrics;
-    this.auditLog = toolContext.auditLog;
-  }
+  ) {}
 
   async run(systemPrompt: string, session: Session): Promise<RunResult> {
     for (let round = 0; round < this.maxToolRounds; round++) {
-      const start = Date.now();
-      let success = true;
-      let error: string | undefined;
-
-      let response;
-      try {
-        response = await this.provider.createMessage({
-          model: this.model,
-          system: systemPrompt,
-          messages: session.getMessages(),
-          tools: this.toolRegistry.schemas(),
-          maxTokens: 4096,
-        });
-      } catch (err) {
-        success = false;
-        error = err instanceof Error ? err.message : String(err);
-        const durationMs = Date.now() - start;
-        this.metrics?.recordLlmCall(this.model, 0, 0, durationMs);
-        this.auditLog?.recordLlmCall({
-          agentId: this.toolContext.agentId,
-          model: this.model,
-          durationMs,
-          success: false,
-          error,
-        });
-        throw err;
-      }
-
-      const durationMs = Date.now() - start;
-      const inputTokens = response.usage?.inputTokens ?? 0;
-      const outputTokens = response.usage?.outputTokens ?? 0;
-
-      this.metrics?.recordLlmCall(this.model, inputTokens, outputTokens, durationMs);
-      this.auditLog?.recordLlmCall({
-        agentId: this.toolContext.agentId,
+      const response = await this.provider.createMessage({
         model: this.model,
-        durationMs,
-        success: true,
-        tokens: { input: inputTokens, output: outputTokens },
-        costUsd: estimateCost(this.model, inputTokens, outputTokens),
+        system: systemPrompt,
+        messages: session.getMessages(),
+        tools: this.toolRegistry.schemas(),
+        maxTokens: 4096,
       });
 
       session.appendAssistant(response.content);
@@ -83,7 +43,7 @@ export class AgentRunner {
 
       // stop_reason === "tool_use"
       const toolUseBlocks = response.content.filter(
-        (b): b is ToolUseBlock => b.type === "tool_use"
+        (b): b is ToolUseBlock => b.type === "tool_use",
       );
 
       const toolResults = [];

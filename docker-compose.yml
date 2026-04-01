@@ -32,7 +32,7 @@ services:
     ports:
       - "3000:80"
     environment:
-      - VITE_BUS_URL=http://antlegion-bus:28080
+      - VITE_BUS_API_URL=http://localhost:28080
     depends_on:
       antlegion-bus:
         condition: service_healthy
@@ -70,6 +70,12 @@ services:
     networks:
       - ant-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:9090/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   # ══════════════════════════════════════════════════════════════════════════════
   # Backend Developer Ant - 后端开发（3年经验）
@@ -102,6 +108,12 @@ services:
     networks:
       - ant-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:9090/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   # ══════════════════════════════════════════════════════════════════════════════
   # Frontend Developer Ant - 前端开发（3年经验）
@@ -135,6 +147,12 @@ services:
     networks:
       - ant-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:9090/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   # ══════════════════════════════════════════════════════════════════════════════
   # QA Tester Ant - 测试工程师（3年经验）
@@ -169,6 +187,12 @@ services:
     networks:
       - ant-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:9090/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Networks

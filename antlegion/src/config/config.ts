@@ -63,6 +63,9 @@ export function loadConfig(configPath?: string): AntLegionConfig {
     scheduler: fileConfig.scheduler
       ? { ...DEFAULT_SCHEDULER_CONFIG, ...fileConfig.scheduler }
       : undefined,
+    resilience: fileConfig.resilience,
+    permissions: fileConfig.permissions,
+    knowledge: fileConfig.knowledge,
   };
 
   if (!config.provider.apiKey) {

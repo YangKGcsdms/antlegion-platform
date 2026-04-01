@@ -17,17 +17,43 @@ afterEach(() => {
 describe("PermissionManager", () => {
   it("should return defaultLevel when no policy file exists", () => {
     const pm = new PermissionManager(
-      { enabled: true, policyFile: "PERMISSIONS.md", defaultLevel: "unrestricted" },
+      { enabled: true, policyFile: "PERMISSIONS.md", defaultLevel: "allow" },
       tmpDir,
     );
-    expect(pm.check("exec")).toBe("unrestricted");
-    expect(pm.check("anything")).toBe("unrestricted");
+    expect(pm.check("exec")).toBe("allow");
+    expect(pm.check("anything")).toBe("allow");
+    expect(pm.isAllowed("anything")).toBe(true);
   });
 
-  it("should load and apply markdown policy", () => {
+  it("should load and apply markdown policy with allow/deny", () => {
     const md = `# Permissions
 
-| Tool Pattern   | Level        |
+| Tool Pattern   | Level |
+|----------------|-------|
+| exec           | allow |
+| write_file     | deny  |
+| legion_bus_*   | allow |
+| *              | deny  |
+`;
+    fs.writeFileSync(path.join(tmpDir, "PERMISSIONS.md"), md);
+
+    const pm = new PermissionManager(
+      { enabled: true, policyFile: "PERMISSIONS.md", defaultLevel: "allow" },
+      tmpDir,
+    );
+
+    expect(pm.check("exec")).toBe("allow");
+    expect(pm.check("write_file")).toBe("deny");
+    expect(pm.check("legion_bus_publish")).toBe("allow");
+    expect(pm.check("legion_bus_claim")).toBe("allow");
+    expect(pm.check("read_file")).toBe("deny"); // matches *
+    expect(pm.isAllowed("exec")).toBe(true);
+    expect(pm.isAllowed("write_file")).toBe(false);
+    expect(pm.ruleCount).toBe(4);
+  });
+
+  it("should normalize legacy levels (unrestricted→allow, restricted→deny)", () => {
+    const md = `| Tool Pattern   | Level        |
 |----------------|-------------|
 | exec           | supervised  |
 | write_file     | restricted  |
@@ -37,91 +63,87 @@ describe("PermissionManager", () => {
     fs.writeFileSync(path.join(tmpDir, "PERMISSIONS.md"), md);
 
     const pm = new PermissionManager(
-      { enabled: true, policyFile: "PERMISSIONS.md", defaultLevel: "unrestricted" },
+      { enabled: true, policyFile: "PERMISSIONS.md", defaultLevel: "allow" },
       tmpDir,
     );
 
-    expect(pm.check("exec")).toBe("supervised");
-    expect(pm.check("write_file")).toBe("restricted");
-    expect(pm.check("legion_bus_publish")).toBe("unrestricted");
-    expect(pm.check("legion_bus_claim")).toBe("unrestricted");
-    expect(pm.check("read_file")).toBe("sandboxed"); // matches *
-    expect(pm.ruleCount).toBe(4);
+    expect(pm.check("exec")).toBe("allow");        // supervised → allow
+    expect(pm.check("write_file")).toBe("deny");    // restricted → deny
+    expect(pm.check("legion_bus_publish")).toBe("allow"); // unrestricted → allow
+    expect(pm.check("read_file")).toBe("deny");     // sandboxed → deny
   });
 
   it("should load JSON policy", () => {
     const json = {
-      defaultLevel: "sandboxed",
+      defaultLevel: "deny",
       rules: [
-        { pattern: "exec", level: "restricted" },
-        { pattern: "read_file", level: "unrestricted" },
+        { pattern: "exec", level: "deny" },
+        { pattern: "read_file", level: "allow" },
       ],
     };
     fs.writeFileSync(path.join(tmpDir, "permissions.json"), JSON.stringify(json));
 
     const pm = new PermissionManager(
-      { enabled: true, policyFile: "permissions.json", defaultLevel: "unrestricted" },
+      { enabled: true, policyFile: "permissions.json", defaultLevel: "allow" },
       tmpDir,
     );
 
-    expect(pm.check("exec")).toBe("restricted");
-    expect(pm.check("read_file")).toBe("unrestricted");
-    expect(pm.check("unknown")).toBe("sandboxed"); // JSON default
+    expect(pm.check("exec")).toBe("deny");
+    expect(pm.check("read_file")).toBe("allow");
+    expect(pm.check("unknown")).toBe("deny"); // JSON default
   });
 
   it("should prioritize exact match over wildcard regardless of order", () => {
     const md = `| Tool Pattern | Level |
 |---|---|
-| * | restricted |
-| exec | unrestricted |
+| * | deny |
+| exec | allow |
 `;
     fs.writeFileSync(path.join(tmpDir, "PERMISSIONS.md"), md);
 
     const pm = new PermissionManager(
-      { enabled: true, policyFile: "PERMISSIONS.md", defaultLevel: "restricted" },
+      { enabled: true, policyFile: "PERMISSIONS.md", defaultLevel: "deny" },
       tmpDir,
     );
 
-    // exec: exact match → unrestricted (takes priority over *)
-    expect(pm.check("exec")).toBe("unrestricted");
-    // other tools only match * → restricted
-    expect(pm.check("other")).toBe("restricted");
+    expect(pm.check("exec")).toBe("allow");
+    expect(pm.check("other")).toBe("deny");
   });
 
   it("should handle glob patterns with * suffix", () => {
     const md = `| Tool Pattern | Level |
 |---|---|
-| task_* | supervised |
-| knowledge_* | unrestricted |
+| task_* | allow |
+| danger_* | deny |
 `;
     fs.writeFileSync(path.join(tmpDir, "PERMISSIONS.md"), md);
 
     const pm = new PermissionManager(
-      { enabled: true, policyFile: "PERMISSIONS.md", defaultLevel: "sandboxed" },
+      { enabled: true, policyFile: "PERMISSIONS.md", defaultLevel: "deny" },
       tmpDir,
     );
 
-    expect(pm.check("task_create")).toBe("supervised");
-    expect(pm.check("task_list")).toBe("supervised");
-    expect(pm.check("knowledge_add")).toBe("unrestricted");
-    expect(pm.check("exec")).toBe("sandboxed"); // default
+    expect(pm.check("task_create")).toBe("allow");
+    expect(pm.check("task_list")).toBe("allow");
+    expect(pm.check("danger_tool")).toBe("deny");
+    expect(pm.check("exec")).toBe("deny"); // default
   });
 
   it("should ignore invalid levels in markdown", () => {
     const md = `| Tool Pattern | Level |
 |---|---|
 | exec | invalid_level |
-| read_file | unrestricted |
+| read_file | allow |
 `;
     fs.writeFileSync(path.join(tmpDir, "PERMISSIONS.md"), md);
 
     const pm = new PermissionManager(
-      { enabled: true, policyFile: "PERMISSIONS.md", defaultLevel: "sandboxed" },
+      { enabled: true, policyFile: "PERMISSIONS.md", defaultLevel: "deny" },
       tmpDir,
     );
 
     expect(pm.ruleCount).toBe(1); // only read_file parsed
-    expect(pm.check("exec")).toBe("sandboxed"); // falls through to default
-    expect(pm.check("read_file")).toBe("unrestricted");
+    expect(pm.check("exec")).toBe("deny"); // falls through to default
+    expect(pm.check("read_file")).toBe("allow");
   });
 });

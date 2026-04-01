@@ -90,46 +90,56 @@ describe("ToolRegistry", () => {
     expect(snap.tools.totalErrors).toBe(1);
   });
 
-  it("should reject restricted tools via permission manager", async () => {
+  it("should reject denied tools via permission middleware", async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "reg-perm-test-"));
     const md = `| Tool Pattern | Level |
 |---|---|
-| danger | restricted |
+| danger | deny |
 `;
     fs.writeFileSync(path.join(tmpDir, "PERMISSIONS.md"), md);
 
     const pm = new PermissionManager(
-      { enabled: true, policyFile: "PERMISSIONS.md", defaultLevel: "unrestricted" },
+      { enabled: true, policyFile: "PERMISSIONS.md", defaultLevel: "allow" },
       tmpDir,
     );
 
-    const ctx = { ...mockContext, permissionManager: pm } as ToolContext;
     const reg = new ToolRegistry();
     reg.register(makeTool("danger", "should not reach"));
+    reg.addMiddleware(async (next, name, input, ctx) => {
+      if (!pm.isAllowed(name)) {
+        throw new Error(`tool "${name}" is denied by permission policy`);
+      }
+      return next(name, input, ctx);
+    });
 
-    await expect(reg.execute("danger", {}, ctx)).rejects.toThrow("restricted by permission policy");
+    await expect(reg.execute("danger", {}, mockContext)).rejects.toThrow("denied by permission policy");
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("should allow unrestricted tools via permission manager", async () => {
+  it("should allow permitted tools via permission middleware", async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "reg-perm-test-"));
     const md = `| Tool Pattern | Level |
 |---|---|
-| safe | unrestricted |
+| safe | allow |
 `;
     fs.writeFileSync(path.join(tmpDir, "PERMISSIONS.md"), md);
 
     const pm = new PermissionManager(
-      { enabled: true, policyFile: "PERMISSIONS.md", defaultLevel: "restricted" },
+      { enabled: true, policyFile: "PERMISSIONS.md", defaultLevel: "deny" },
       tmpDir,
     );
 
-    const ctx = { ...mockContext, permissionManager: pm } as ToolContext;
     const reg = new ToolRegistry();
     reg.register(makeTool("safe", "allowed"));
+    reg.addMiddleware(async (next, name, input, ctx) => {
+      if (!pm.isAllowed(name)) {
+        throw new Error(`tool "${name}" is denied by permission policy`);
+      }
+      return next(name, input, ctx);
+    });
 
-    const result = await reg.execute("safe", {}, ctx);
+    const result = await reg.execute("safe", {}, mockContext);
     expect(result).toBe("allowed");
 
     fs.rmSync(tmpDir, { recursive: true, force: true });

@@ -1,8 +1,11 @@
 /**
- * 权限管理类型
+ * 权限管理类型 — 简化为 allow/deny 模型
+ *
+ * antlegion agent 自主运行，无人类审批环节，
+ * 只需要简单的工具白名单/黑名单控制。
  */
 
-export type PermissionLevel = "unrestricted" | "supervised" | "restricted" | "sandboxed";
+export type PermissionLevel = "allow" | "deny";
 
 export interface ToolPermission {
   /** 精确工具名或通配 pattern (例: "exec", "legion_bus_*", "*") */
@@ -25,5 +28,5 @@ export interface PermissionConfig {
 export const DEFAULT_PERMISSION_CONFIG: PermissionConfig = {
   enabled: false,
   policyFile: "PERMISSIONS.md",
-  defaultLevel: "unrestricted",
+  defaultLevel: "allow",
 };

@@ -43,7 +43,7 @@ export class FactMemory {
     }
   }
 
-  /** 根据事件的因果链加载祖先记忆，返回格式化文本 */
+  /** 根据事件的因果链加载祖先记忆，返回格式化文本（含缺失祖先警告） */
   loadForEvents(events: BusEvent[]): string {
     const ancestorIds = new Set<string>();
     for (const event of events) {
@@ -54,15 +54,29 @@ export class FactMemory {
       }
     }
 
+    if (ancestorIds.size === 0) return "";
+
     const lines: string[] = [];
+    const missingIds: string[] = [];
     for (const id of ancestorIds) {
       const record = this.load(id);
       if (record) {
         lines.push(`[Ancestor fact ${id}] ${record.factType}: ${record.summary}`);
+      } else {
+        missingIds.push(id);
       }
     }
 
-    if (lines.length === 0) return "";
-    return "## Causation Context\n\n" + lines.join("\n") + "\n";
+    let result = "## Causation Context\n\n";
+
+    if (missingIds.length > 0) {
+      result += `> ⚠ WARNING: Causation chain incomplete — missing ${missingIds.length} ancestor(s): ${missingIds.join(", ")}. Decision may be based on partial context.\n\n`;
+    }
+
+    if (lines.length > 0) {
+      result += lines.join("\n") + "\n";
+    }
+
+    return result;
   }
 }

@@ -152,7 +152,7 @@ FACT_RESP=$(curl -s -X POST "$BUS_URL/facts" \
     \"domain_tags\": [\"requirement\", \"$FEATURE_NAME\"],
     \"need_capabilities\": [\"requirement-analysis\"],
     \"priority\": 5,
-    \"mode\": \"broadcast\",
+    \"mode\": \"exclusive\",
     \"source_ant_id\": \"$ANT_ID\",
     \"token\": \"$TOKEN\",
     \"ttl_seconds\": 3600

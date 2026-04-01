@@ -10,7 +10,7 @@ export function createSchedulerTools(scheduler: TaskScheduler): ToolDefinition[]
   return [
     {
       name: "task_create",
-      description: "Create a scheduled task for future execution. The task prompt will be injected as a user message when the task runs.",
+      description: "Create a scheduled task for future self-execution. The task prompt will be injected as a user message when the task runs. IMPORTANT: Scheduled tasks are for your own internal reminders only (e.g., 'check build status in 5 minutes'). Tasks MUST NOT be used to publish facts to the bus or to replace bus-driven coordination with other agents.",
       inputSchema: {
         type: "object",
         properties: {

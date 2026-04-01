@@ -11,7 +11,7 @@ export function createKnowledgeTools(kb: KnowledgeBase): ToolDefinition[] {
   return [
     {
       name: "knowledge_add",
-      description: "Store a learned fact or useful knowledge for future reference. Knowledge persists across sessions.",
+      description: "Store your own learned experience or useful knowledge for future reference. Knowledge persists across sessions. IMPORTANT: Only store your own experiences and patterns (e.g., coding patterns, tool usage tips). Do NOT store information from other agents' facts or bus events — use the fact bus and shared workspace for cross-agent information.",
       inputSchema: {
         type: "object",
         properties: {

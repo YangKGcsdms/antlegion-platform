@@ -1,22 +1,28 @@
 /**
- * 策略解析器
+ * 策略解析器 — 简化为 allow/deny 模型
  * 支持 Markdown 表格格式和 JSON 格式
  *
  * Markdown 格式:
- * | Tool Pattern   | Level        |
- * |----------------|-------------|
- * | exec           | supervised  |
- * | write_file     | supervised  |
- * | legion_bus_*   | unrestricted|
- * | *              | sandboxed   |
+ * | Tool Pattern   | Level |
+ * |----------------|-------|
+ * | exec           | allow |
+ * | legion_bus_*   | allow |
+ * | dangerous_tool | deny  |
  */
 
 import type { PermissionPolicy, PermissionLevel, ToolPermission } from "./types.js";
 
-const VALID_LEVELS: Set<string> = new Set(["unrestricted", "supervised", "restricted", "sandboxed"]);
+const VALID_LEVELS: Set<string> = new Set(["allow", "deny"]);
+
+/** 兼容旧格式：unrestricted/supervised → allow, restricted/sandboxed → deny */
+function normalizeLevel(level: string): PermissionLevel | null {
+  const l = level.toLowerCase();
+  if (l === "allow" || l === "unrestricted" || l === "supervised") return "allow";
+  if (l === "deny" || l === "restricted" || l === "sandboxed") return "deny";
+  return null;
+}
 
 function isSeparatorLine(line: string): boolean {
-  // |---|---| or |:---:|:---:| etc
   return /^\|[\s\-:|]+\|[\s\-:|]*$/.test(line);
 }
 
@@ -31,18 +37,15 @@ export function parsePermissionsMarkdown(content: string, defaultLevel: Permissi
   const rules: ToolPermission[] = [];
   const lines = content.split("\n");
 
-  // 找到所有 markdown 表格并提取数据行
   let i = 0;
   while (i < lines.length) {
     const trimmed = lines[i].trim();
 
-    // 寻找表头行 (第一个 | 开头的行)
     if (!trimmed.startsWith("|")) {
       i++;
       continue;
     }
 
-    // 检查下一行是否是分隔行
     const nextLine = i + 1 < lines.length ? lines[i + 1].trim() : "";
     if (!isSeparatorLine(nextLine)) {
       i++;
@@ -52,7 +55,6 @@ export function parsePermissionsMarkdown(content: string, defaultLevel: Permissi
     // 跳过表头和分隔行
     i += 2;
 
-    // 读取数据行
     while (i < lines.length) {
       const dataLine = lines[i].trim();
       if (!dataLine.startsWith("|")) break;
@@ -61,9 +63,9 @@ export function parsePermissionsMarkdown(content: string, defaultLevel: Permissi
       const cells = parseTableRow(dataLine);
       if (cells.length >= 2) {
         const pattern = cells[0];
-        const level = cells[1].toLowerCase();
-        if (VALID_LEVELS.has(level)) {
-          rules.push({ pattern, level: level as PermissionLevel });
+        const level = normalizeLevel(cells[1]);
+        if (level) {
+          rules.push({ pattern, level });
         }
       }
       i++;
@@ -79,14 +81,16 @@ export function parsePermissionsJson(content: string, defaultLevel: PermissionLe
   const rules: ToolPermission[] = [];
   if (Array.isArray(data.rules)) {
     for (const rule of data.rules) {
-      if (rule.pattern && VALID_LEVELS.has(rule.level)) {
-        rules.push({ pattern: rule.pattern, level: rule.level });
+      const level = normalizeLevel(rule.level);
+      if (rule.pattern && level) {
+        rules.push({ pattern: rule.pattern, level });
       }
     }
   }
 
+  const parsedDefault = normalizeLevel(data.defaultLevel);
   return {
-    defaultLevel: VALID_LEVELS.has(data.defaultLevel) ? data.defaultLevel : defaultLevel,
+    defaultLevel: parsedDefault ?? defaultLevel,
     rules,
   };
 }
