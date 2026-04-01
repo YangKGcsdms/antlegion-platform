@@ -99,8 +99,8 @@ services:
     volumes:
       - ./workspaces/backend:/workspace
       - ./knowledge-base:/knowledge-base:ro
-      - ./shared-output/code/backend:/shared/code
-      - ./shared-output/docs/api:/shared/docs/api
+      - ./shared-output/code:/shared/code
+      - ./shared-output/docs:/shared/docs
       - ./shared-output/requirements:/shared/requirements:ro
     depends_on:
       antlegion-bus:
@@ -137,10 +137,9 @@ services:
     volumes:
       - ./workspaces/frontend:/workspace
       - ./knowledge-base:/knowledge-base:ro
-      - ./shared-output/code/frontend:/shared/code
-      - ./shared-output/docs/components:/shared/docs/components
+      - ./shared-output/code:/shared/code
+      - ./shared-output/docs:/shared/docs
       - ./shared-output/requirements:/shared/requirements:ro
-      - ./shared-output/docs/api:/shared/docs/api:ro
     depends_on:
       antlegion-bus:
         condition: service_healthy
@@ -177,10 +176,9 @@ services:
       - ./workspaces/tester:/workspace
       - ./knowledge-base:/knowledge-base:ro
       - ./shared-output/tests:/shared/tests
-      - ./shared-output/docs/quality:/shared/docs/quality
+      - ./shared-output/docs:/shared/docs:ro
       - ./shared-output/requirements:/shared/requirements:ro
       - ./shared-output/code:/shared/code:ro
-      - ./shared-output/docs/api:/shared/docs/api:ro
     depends_on:
       antlegion-bus:
         condition: service_healthy

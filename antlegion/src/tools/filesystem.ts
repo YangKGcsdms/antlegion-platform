@@ -13,7 +13,9 @@ function resolveSafe(workspaceDir: string, filePath: string): string {
   const resolved = path.resolve(workspaceDir, filePath);
   if (resolved.startsWith(workspaceDir)) return resolved;
   for (const prefix of ALLOWED_PREFIXES) {
-    if (resolved.startsWith(prefix)) return resolved;
+    // Allow both the prefix root (e.g. "/shared") and its children ("/shared/code")
+    const base = prefix.replace(/\/+$/, "");
+    if (resolved === base || resolved.startsWith(prefix)) return resolved;
   }
   throw new Error(`path outside workspace: ${filePath}`);
 }

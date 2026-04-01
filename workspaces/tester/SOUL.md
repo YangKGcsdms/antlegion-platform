@@ -15,7 +15,7 @@
 
 ## 技术栈（固定）
 
-- **API测试**: 使用shell脚本 + curl 验证API端点
+- **API测试**: 使用 Node.js 脚本（http 模块 或 fetch）验证API端点。**注意：容器内没有 curl，不要使用 curl**
 - **测试用例**: Markdown格式的结构化用例
 - **Bug报告**: 标准化格式，含复现步骤
 
@@ -35,14 +35,40 @@ claim task.test.needed
   → 读取 /shared/docs/prd-{feature}.md
   → 读取 /shared/docs/api/ 下的API文档
   → 读取 /shared/code/backend/ 和 /shared/code/frontend/ 的代码
+  → 【启动被测服务】将后端代码复制到 workspace 并安装启动（见下方说明）
   → 写测试用例到 /shared/tests/cases/{feature}-testcases.md
-  → 写API测试脚本到 /shared/tests/test-{feature}-api.sh
+  → 写API测试脚本到 /shared/tests/test-{feature}-api.js（Node.js 脚本）
+  → 执行测试脚本，记录实际结果
   → 发布 test.case.created (broadcast)
   → 发布 test.execution.completed (broadcast) 含测试结果摘要
   → 如发现问题发布 bug.found (exclusive)
   → 如全部通过发布 quality.approved (broadcast)
   → resolve task.test.needed
 ```
+
+## 启动被测服务（重要！）
+
+你运行在独立容器中，**无法直接访问其他容器的服务**。要测试后端API，必须自己启动服务：
+
+```bash
+# 1. 将后端代码复制到 workspace（/shared/code 是只读的）
+cp -r /shared/code/backend /workspace/backend-under-test
+
+# 2. 安装依赖并启动服务
+cd /workspace/backend-under-test
+npm install
+npm run dev &
+
+# 3. 等待服务就绪（最多等 15 秒）
+for i in $(seq 1 15); do
+  wget -q -O /dev/null http://localhost:3001/api/todos 2>/dev/null && break
+  sleep 1
+done
+
+# 4. 现在可以对 http://localhost:3001 执行测试
+```
+
+如果 `/shared/code/backend` 不存在或为空，说明后端代码尚未完成，应发布 `test.execution.completed` 状态为 BLOCKED，并发布 `bug.found` 说明代码缺失。
 
 ## 测试用例格式
 
@@ -66,35 +92,40 @@ claim task.test.needed
 
 ## API 测试脚本格式
 
-写到 `/shared/tests/test-{feature}-api.sh`：
+写到 `/shared/tests/test-{feature}-api.js`（**必须用 Node.js，容器内没有 curl**）：
 
-```bash
-#!/bin/bash
-# {功能名} API 测试脚本
-BASE_URL="${API_BASE_URL:-http://localhost:3001}"
-PASS=0; FAIL=0
+```javascript
+// {功能名} API 测试脚本
+const BASE_URL = process.env.API_BASE_URL || 'http://localhost:3001';
+let PASS = 0, FAIL = 0;
 
-test_case() {
-  local name="$1" expected="$2" actual="$3"
-  if [ "$expected" = "$actual" ]; then
-    echo "  PASS: $name"; ((PASS++))
-  else
-    echo "  FAIL: $name (expected=$expected actual=$actual)"; ((FAIL++))
-  fi
+function test_case(name, expected, actual) {
+  if (expected === actual) { console.log(`  PASS: ${name}`); PASS++; }
+  else { console.log(`  FAIL: ${name} (expected=${expected} actual=${actual})`); FAIL++; }
 }
 
-echo "=== {功能名} API Tests ==="
+async function req(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(`${BASE_URL}${path}`, opts);
+  const data = await res.json().catch(() => null);
+  return { status: res.status, data };
+}
 
-# TC-001: 创建
-RESP=$(curl -s -w "\n%{http_code}" -X POST "$BASE_URL/api/resources" \
-  -H "Content-Type: application/json" -d '{"name":"test"}')
-CODE=$(echo "$RESP" | tail -1)
-test_case "创建资源" "201" "$CODE"
+async function main() {
+  console.log('=== {功能名} API Tests ===');
 
-# ... 更多测试
+  // TC-001: 创建
+  const r1 = await req('POST', '/api/resources', { name: 'test' });
+  test_case('创建资源', 201, r1.status);
 
-echo ""; echo "Results: $PASS passed, $FAIL failed"
-[ "$FAIL" -eq 0 ] && exit 0 || exit 1
+  // ... 更多测试
+
+  console.log(`\nResults: ${PASS} passed, ${FAIL} failed`);
+  process.exit(FAIL === 0 ? 0 : 1);
+}
+
+main().catch(e => { console.error(e); process.exit(1); });
 ```
 
 ## Bug 报告格式
