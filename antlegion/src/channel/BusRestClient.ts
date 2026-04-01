@@ -59,9 +59,12 @@ export class BusRestClient {
     return res.data;
   }
 
-  async heartbeat(): Promise<void> {
+  async heartbeat(status?: { current_action?: string; status_text?: string }): Promise<void> {
     if (!this.antId) return;
-    await this.fetchJson(`/ants/${this.antId}/heartbeat`, { method: "POST" });
+    await this.fetchJson(`/ants/${this.antId}/heartbeat`, {
+      method: "POST",
+      body: JSON.stringify(status ?? {}),
+    });
   }
 
   disconnect(): void {
@@ -111,7 +114,7 @@ export class BusRestClient {
           created_at: createdAt,
           mode: input.mode ?? "exclusive",
           priority: input.priority ?? 3,
-          ttl_seconds: input.ttl_seconds ?? 300,
+          ttl_seconds: input.ttl_seconds ?? 1800,
           causation_depth: 0,
           confidence: input.confidence,
           domain_tags: input.domain_tags,
@@ -128,7 +131,7 @@ export class BusRestClient {
       mode: input.mode ?? "exclusive",
       source_ant_id: this.antId!,
       token: this.token!,
-      ttl_seconds: input.ttl_seconds ?? 300,
+      ttl_seconds: input.ttl_seconds ?? 1800,
       schema_version: "1.0.0",
       causation_chain: [],
       causation_depth: 0,

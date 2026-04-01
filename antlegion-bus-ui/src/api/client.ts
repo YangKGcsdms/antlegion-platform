@@ -61,6 +61,8 @@ export interface Ant {
   transmit_error_counter: number;
   connected_at: number | null;
   last_heartbeat: number | null;
+  current_action: string;
+  status_text: string;
 }
 
 export interface Stats {
@@ -145,6 +147,11 @@ export const api = {
     request<{ success: boolean; new_state: string }>(`/admin/facts/${id}/redispatch`, {
       method: "POST",
     }),
+  adminBatchFacts: (factIds: string[], action: "delete" | "redispatch" | "release") =>
+    request<{ total: number; succeeded: number; failed: number; results: Array<{ fact_id: string; success: boolean; error?: string }> }>(
+      "/admin/facts/batch",
+      { method: "POST", body: JSON.stringify({ fact_ids: factIds, action }) },
+    ),
   adminCleanup: (opts: {
     fact_states?: string[];
     older_than_seconds?: number;

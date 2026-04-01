@@ -184,7 +184,7 @@ export function createFact(overrides: Partial<Fact> = {}): Fact {
     subject_key: "",
     supersedes: "",
     created_at: Date.now() / 1000,
-    ttl_seconds: 300,
+    ttl_seconds: 1800,
     schema_version: "1.0.0",
     confidence: null,
     content_hash: "",
@@ -290,6 +290,8 @@ export interface AntIdentity {
   reliability_score: number;
   connected_at: number | null;
   last_heartbeat: number | null;
+  current_action: string;
+  status_text: string;
 }
 
 /** Create a AntIdentity with defaults. */
@@ -307,6 +309,8 @@ export function createAntIdentity(
     reliability_score: 1.0,
     connected_at: null,
     last_heartbeat: null,
+    current_action: "",
+    status_text: "",
     ...overrides,
   };
 }
@@ -496,7 +500,7 @@ export const DEFAULT_CONFIG: BusConfig = {
   },
   bus: {
     maxCausationDepth: 16,
-    defaultTtlSeconds: 300,
+    defaultTtlSeconds: 1800,
     gcRetainResolvedSeconds: 600,
     gcRetainDeadSeconds: 3600,
     gcMaxFacts: 10000,

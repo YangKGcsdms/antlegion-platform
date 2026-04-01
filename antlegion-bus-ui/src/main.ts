@@ -10,6 +10,7 @@ import AntsView from "./views/AntsView.vue";
 import AntDetailView from "./views/AntDetailView.vue";
 import EventsView from "./views/EventsView.vue";
 import AdminView from "./views/AdminView.vue";
+import KanbanView from "./views/KanbanView.vue";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -20,6 +21,7 @@ const router = createRouter({
     { path: "/ants", component: AntsView },
     { path: "/ants/:id", component: AntDetailView, props: true },
     { path: "/events", component: EventsView },
+    { path: "/kanban", component: KanbanView },
     { path: "/admin", component: AdminView },
   ],
 });

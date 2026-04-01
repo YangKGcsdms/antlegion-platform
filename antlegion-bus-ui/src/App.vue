@@ -23,6 +23,7 @@ function toggleLocale() {
             <RouterLink to="/facts" class="hover:text-emerald-400 transition-colors" active-class="text-emerald-400">{{ t("nav.facts") }}</RouterLink>
             <RouterLink to="/ants" class="hover:text-emerald-400 transition-colors" active-class="text-emerald-400">{{ t("nav.ants") }}</RouterLink>
             <RouterLink to="/events" class="hover:text-emerald-400 transition-colors" active-class="text-emerald-400">{{ t("nav.events") }}</RouterLink>
+            <RouterLink to="/kanban" class="hover:text-emerald-400 transition-colors" active-class="text-emerald-400">{{ t("nav.kanban") }}</RouterLink>
             <RouterLink to="/admin" class="hover:text-orange-400 transition-colors" active-class="text-orange-400">{{ t("nav.admin") }}</RouterLink>
             <button @click="toggleLocale"
               class="ml-2 px-2 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-xs font-medium transition-colors">

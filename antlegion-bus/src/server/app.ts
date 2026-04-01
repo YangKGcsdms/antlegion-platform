@@ -72,7 +72,7 @@ export function createApp(config?: Partial<BusConfig>) {
       mode: body.mode ?? "exclusive",
       source_ant_id: body.source_ant_id,
       created_at: body.created_at ?? Date.now() / 1000,
-      ttl_seconds: body.ttl_seconds ?? 300,
+      ttl_seconds: body.ttl_seconds ?? 1800,
       schema_version: body.schema_version ?? "1.0.0",
       confidence: body.confidence ?? null,
       causation_chain: causationChain,
@@ -247,9 +247,13 @@ export function createApp(config?: Partial<BusConfig>) {
     });
   });
 
-  app.post("/ants/:antId/heartbeat", (c) => {
+  app.post("/ants/:antId/heartbeat", async (c) => {
     const antId = c.req.param("antId");
-    const state = engine.heartbeat(antId);
+    const body = await c.req.json().catch(() => ({}));
+    const state = engine.heartbeat(antId, {
+      current_action: body.current_action,
+      status_text: body.status_text,
+    });
     return c.json({
       ant_id: antId,
       state,
@@ -271,7 +275,12 @@ export function createApp(config?: Partial<BusConfig>) {
   });
 
   app.get("/ants", (c) => {
-    const ants = engine.getAnts();
+    const includeObservers = c.req.query("include_observers") === "true";
+    // UI WebSocket observers have names like "dashboard", "kanban", "ws-client"
+    const UI_OBSERVER_NAMES = new Set(["dashboard", "kanban", "ws-client", "event-stream"]);
+    const ants = engine.getAnts().filter(
+      (cl) => includeObservers || !UI_OBSERVER_NAMES.has(cl.name)
+    );
     return c.json(
       ants.map((cl) => ({
         ant_id: cl.ant_id,
@@ -285,6 +294,8 @@ export function createApp(config?: Partial<BusConfig>) {
         transmit_error_counter: cl.transmit_error_counter,
         connected_at: cl.connected_at,
         last_heartbeat: cl.last_heartbeat,
+        current_action: cl.current_action,
+        status_text: cl.status_text,
       })),
     );
   });
@@ -304,6 +315,8 @@ export function createApp(config?: Partial<BusConfig>) {
       transmit_error_counter: ant.transmit_error_counter,
       connected_at: ant.connected_at,
       last_heartbeat: ant.last_heartbeat,
+      current_action: ant.current_action,
+      status_text: ant.status_text,
     });
   });
 
@@ -336,6 +349,39 @@ export function createApp(config?: Partial<BusConfig>) {
     const [ok, detail] = engine.adminRedispatch(c.req.param("factId"));
     if (!ok) return c.json({ error: detail }, 404);
     return c.json({ success: true, fact_id: c.req.param("factId"), new_state: detail });
+  });
+
+  app.post("/admin/facts/batch", async (c) => {
+    const body = await c.req.json();
+    const factIds: string[] = body.fact_ids ?? [];
+    const action: string = body.action; // "delete" | "redispatch" | "release"
+
+    if (!factIds.length) return c.json({ error: "fact_ids required" }, 400);
+    if (!["delete", "redispatch", "release"].includes(action)) {
+      return c.json({ error: "action must be delete, redispatch, or release" }, 400);
+    }
+
+    const results: { fact_id: string; success: boolean; error?: string }[] = [];
+    for (const fid of factIds) {
+      if (action === "delete") {
+        const [ok, msg] = engine.adminDeleteFact(fid);
+        results.push({ fact_id: fid, success: ok, ...(!ok && { error: msg }) });
+      } else if (action === "redispatch") {
+        const [ok, msg] = engine.adminRedispatch(fid);
+        results.push({ fact_id: fid, success: ok, ...(!ok && { error: msg }) });
+      } else if (action === "release") {
+        const fact = engine.getFact(fid);
+        if (!fact || !fact.claimed_by) {
+          results.push({ fact_id: fid, success: false, error: "not claimed" });
+        } else {
+          const [ok, msg] = engine.releaseFact(fid, fact.claimed_by);
+          results.push({ fact_id: fid, success: ok, ...(!ok && { error: msg }) });
+        }
+      }
+    }
+
+    const succeeded = results.filter((r) => r.success).length;
+    return c.json({ total: factIds.length, succeeded, failed: factIds.length - succeeded, results });
   });
 
   app.post("/admin/facts/cleanup", async (c) => {

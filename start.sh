@@ -106,12 +106,9 @@ mkdir -p workspaces/tester
 
 echo "  共享目录结构就绪"
 
-# ── 4. 构建并启动 ──
-echo "[3/4] 构建 Docker 镜像（首次较慢）..."
-$COMPOSE build --parallel 2>&1 | tail -5
-
-echo "[4/4] 启动所有服务..."
-$COMPOSE up -d
+# ── 4. 构建并启动（--build 确保每次用最新代码）──
+echo "[3/3] 构建并启动所有服务（--build）..."
+$COMPOSE up -d --build
 
 echo ""
 echo "============================================"

@@ -52,7 +52,10 @@ claim task.test.needed
 
 ```bash
 # 1. 将后端代码复制到 workspace（/shared/code 是只读的）
-cp -r /shared/code/backend /workspace/backend-under-test
+#    注意：用 /. 后缀复制目录内容，避免多嵌套一层
+rm -rf /workspace/backend-under-test
+mkdir -p /workspace/backend-under-test
+cp -r /shared/code/backend/. /workspace/backend-under-test/
 
 # 2. 安装依赖并启动服务
 cd /workspace/backend-under-test

@@ -30,6 +30,8 @@ export class Runtime {
   private tickCount = 0;
   private healthServer: Server | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private currentPhase = "idle";
+  private lastToolCall = "";
 
   constructor(private runtimeContext: RuntimeContext) {
     this.ctx = runtimeContext;
@@ -44,7 +46,11 @@ export class Runtime {
     // ── independent heartbeat ──
     this.heartbeatTimer = setInterval(async () => {
       if (!this.running) return;
-      await ctx.channel.heartbeat().catch((err) => {
+      const claims = ctx.toolContext?.activeClaims?.size ?? 0;
+      await ctx.channel.heartbeat({
+        current_action: this.currentPhase,
+        status_text: `tick#${this.tickCount} claims:${claims}${this.lastToolCall ? ` last_tool:${this.lastToolCall}` : ""}`,
+      }).catch((err) => {
         const msg = err instanceof Error ? err.message : String(err);
         ctx.logger.warn("heartbeat failed", { error: msg });
       });
@@ -82,6 +88,7 @@ export class Runtime {
 
   private async tick(): Promise<void> {
     this.tickCount++;
+    this.currentPhase = "tick_handlers";
     await this.emitHook("before_tick", { tick: this.tickCount });
 
     // ── 1. run plugin tick handlers (scheduler injects messages here) ──
@@ -101,6 +108,7 @@ export class Runtime {
     }
 
     // ── 2. sense events ──
+    this.currentPhase = "sense";
     const { events, dropped } = this.ctx.channel.sense();
     if (events.length === 0) {
       await this.emitHook("after_tick", { tick: this.tickCount });
@@ -110,6 +118,7 @@ export class Runtime {
     this.ctx.logger.info("sensed events", { count: events.length, dropped });
 
     // ── 3. triage: broadcast → ContextBuffer, exclusive → pre-claim ──
+    this.currentPhase = "triage";
     const actionableEvents: BusEvent[] = [];
     const preClaimedIds = new Set<string>();
     for (const event of events) {
@@ -177,6 +186,7 @@ export class Runtime {
     }
 
     // ── 4. build LLM message ──
+    this.currentPhase = "format";
     const causationMemory = this.ctx.factMemory.loadForEvents(actionableEvents);
     let userMessage = this.ctx.formatEvents(actionableEvents, dropped, causationMemory, preClaimedIds);
 
@@ -193,8 +203,10 @@ export class Runtime {
       .filter((id): id is string => !!id);
 
     // ── 5. execute LLM (with recovery) ──
+    this.currentPhase = "llm_run";
     await this.runWithRecovery(actionableEvents, factIds);
 
+    this.currentPhase = "idle";
     await this.emitHook("after_tick", { tick: this.tickCount });
   }
 
@@ -343,7 +355,9 @@ export class Runtime {
     const metricsEnabled = this.ctx.config.observability?.metricsEndpoint !== false;
 
     this.healthServer = createServer((req, res) => {
-      if (req.url === "/health") {
+      const url = new URL(req.url ?? "/", `http://localhost:${port}`);
+
+      if (url.pathname === "/health") {
         const body = JSON.stringify({
           status: "ok",
           antId: this.ctx.agentId,
@@ -357,13 +371,22 @@ export class Runtime {
         });
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(body);
-      } else if (req.url === "/metrics" && metricsEnabled) {
+      } else if (url.pathname === "/metrics" && metricsEnabled) {
         const metrics = getExtension<MetricsCollector>(this.ctx.toolContext, METRICS_KEY);
         const body = metrics
           ? JSON.stringify(metrics.snapshot())
           : JSON.stringify({ error: "metrics not available" });
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(body);
+      } else if (url.pathname === "/session") {
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+        res.end(this.renderSessionPage());
+      } else if (url.pathname === "/session/api") {
+        res.writeHead(200, {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+        });
+        res.end(JSON.stringify(this.getSessionData()));
       } else {
         res.writeHead(404);
         res.end();
@@ -372,6 +395,322 @@ export class Runtime {
     this.healthServer.listen(port, () => {
       this.ctx.logger.info("health server started", { port, metricsEnabled });
     });
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // Session 看板
+  // ══════════════════════════════════════════════════════════════════
+
+  private getSessionData(): Record<string, unknown> {
+    const messages = this.ctx.session.getMessages();
+    const formatted = messages.map((msg, idx) => {
+      if (typeof msg.content === "string") {
+        return { idx, role: msg.role, type: "text", text: msg.content };
+      }
+      if (Array.isArray(msg.content)) {
+        const blocks = msg.content.map((block) => {
+          if ("type" in block && block.type === "text" && "text" in block) {
+            return { type: "text", text: (block as { text: string }).text };
+          }
+          if ("type" in block && block.type === "tool_use") {
+            const tb = block as { id: string; name: string; input: unknown };
+            return { type: "tool_use", id: tb.id, name: tb.name, input: tb.input };
+          }
+          if ("type" in block && block.type === "tool_result") {
+            const tr = block as { tool_use_id: string; content: string; is_error?: boolean };
+            return { type: "tool_result", tool_use_id: tr.tool_use_id, content: tr.content, is_error: tr.is_error };
+          }
+          return { type: "unknown", raw: JSON.stringify(block) };
+        });
+        return { idx, role: msg.role, type: "blocks", blocks };
+      }
+      return { idx, role: msg.role, type: "unknown" };
+    });
+
+    return {
+      antId: this.ctx.agentId,
+      name: this.ctx.config.bus.name,
+      role: this.ctx.roleConfig?.role ?? "unknown",
+      connected: this.ctx.channel.isConnected,
+      uptime: Math.floor((Date.now() - this.startedAt) / 1000),
+      ticks: this.tickCount,
+      activeClaims: [...this.ctx.toolContext.activeClaims],
+      estimatedTokens: this.ctx.session.estimatedTokens,
+      messageCount: this.ctx.session.messageCount,
+      messages: formatted,
+      timestamp: Date.now(),
+    };
+  }
+
+  private renderSessionPage(): string {
+    const name = this.ctx.config.bus.name;
+    const role = this.ctx.roleConfig?.role ?? "agent";
+
+    const roleLabels: Record<string, string> = {
+      "product-manager": "产品经理",
+      "backend-developer": "后端开发",
+      "frontend-developer": "前端开发",
+      "qa-tester": "测试工程师",
+    };
+    const roleColors: Record<string, string> = {
+      "product-manager": "#8b5cf6",
+      "backend-developer": "#3b82f6",
+      "frontend-developer": "#10b981",
+      "qa-tester": "#f59e0b",
+    };
+    const label = roleLabels[name] ?? name;
+    const color = roleColors[name] ?? "#6b7280";
+
+    return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${label} — Session 看板</title>
+<style>
+  :root {
+    --accent: ${color};
+    --bg: #0f172a;
+    --card: #1e293b;
+    --border: #334155;
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --user-bg: #1e3a5f;
+    --assistant-bg: #1a2e1a;
+    --tool-bg: #2d2416;
+    --tool-result-bg: #1c1c2e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans SC", sans-serif;
+    background: var(--bg); color: var(--text);
+    line-height: 1.6; padding: 0;
+  }
+  .header {
+    background: var(--card); border-bottom: 3px solid var(--accent);
+    padding: 16px 24px; display: flex; align-items: center; gap: 16px;
+    position: sticky; top: 0; z-index: 10;
+  }
+  .header .dot { width: 14px; height: 14px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+  .header h1 { font-size: 18px; font-weight: 600; color: var(--accent); }
+  .header .meta { margin-left: auto; font-size: 12px; color: var(--text-dim); text-align: right; }
+  .header .meta span { display: inline-block; margin-left: 16px; }
+  .controls {
+    padding: 12px 24px; background: var(--card); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 12px; font-size: 13px;
+  }
+  .controls label { color: var(--text-dim); }
+  .controls input[type=checkbox] { accent-color: var(--accent); }
+  .controls button {
+    padding: 4px 14px; border-radius: 4px; border: 1px solid var(--border);
+    background: var(--card); color: var(--text); cursor: pointer; font-size: 12px;
+  }
+  .controls button:hover { border-color: var(--accent); color: var(--accent); }
+  .controls .status { margin-left: auto; }
+  .controls .status .live { color: #22c55e; }
+  .controls .status .off { color: #ef4444; }
+
+  #messages { padding: 16px 24px 80px; }
+  .msg {
+    margin-bottom: 12px; border-radius: 8px; padding: 12px 16px;
+    border-left: 4px solid transparent; position: relative;
+    page-break-inside: avoid;
+  }
+  .msg.user { background: var(--user-bg); border-left-color: #3b82f6; }
+  .msg.assistant { background: var(--assistant-bg); border-left-color: #22c55e; }
+  .msg .role-tag {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.5px; margin-bottom: 6px; opacity: 0.7;
+  }
+  .msg.user .role-tag { color: #60a5fa; }
+  .msg.assistant .role-tag { color: #4ade80; }
+  .msg .content { white-space: pre-wrap; word-break: break-word; font-size: 13px; }
+
+  .tool-call {
+    background: var(--tool-bg); border-radius: 6px; padding: 10px 14px;
+    margin: 6px 0; border-left: 3px solid #f59e0b;
+  }
+  .tool-call .tool-name { color: #fbbf24; font-weight: 600; font-size: 12px; }
+  .tool-call .tool-input {
+    font-family: "SF Mono", "Fira Code", monospace; font-size: 11px;
+    color: var(--text-dim); margin-top: 4px; max-height: 200px; overflow-y: auto;
+  }
+  .tool-result {
+    background: var(--tool-result-bg); border-radius: 6px; padding: 10px 14px;
+    margin: 6px 0; border-left: 3px solid #818cf8;
+  }
+  .tool-result.error { border-left-color: #ef4444; }
+  .tool-result .tr-label { color: #a5b4fc; font-weight: 600; font-size: 12px; }
+  .tool-result.error .tr-label { color: #fca5a5; }
+  .tool-result .tr-content {
+    font-family: "SF Mono", "Fira Code", monospace; font-size: 11px;
+    color: var(--text-dim); margin-top: 4px; max-height: 200px; overflow-y: auto;
+    white-space: pre-wrap; word-break: break-all;
+  }
+
+  .msg-idx {
+    position: absolute; top: 8px; right: 12px;
+    font-size: 10px; color: var(--text-dim); opacity: 0.5;
+  }
+
+  .empty {
+    text-align: center; color: var(--text-dim); padding: 60px 20px;
+    font-size: 14px;
+  }
+
+  /* ── 打印样式 ── */
+  @media print {
+    :root {
+      --bg: #fff; --card: #fff; --border: #ddd; --text: #1a1a1a;
+      --text-dim: #666; --user-bg: #eef4ff; --assistant-bg: #eefbee;
+      --tool-bg: #fff8ee; --tool-result-bg: #f0f0ff;
+    }
+    body { background: #fff; color: #1a1a1a; padding: 0; font-size: 11px; }
+    .header { position: static; border-bottom: 2px solid var(--accent); padding: 10px 16px; }
+    .header h1 { font-size: 14px; }
+    .controls { display: none; }
+    #messages { padding: 8px 16px; }
+    .msg { padding: 8px 12px; margin-bottom: 8px; page-break-inside: avoid; }
+    .msg .content { font-size: 11px; }
+    .tool-call .tool-input, .tool-result .tr-content {
+      max-height: none; font-size: 9px;
+    }
+    @page { margin: 1cm; size: A4; }
+  }
+</style>
+</head>
+<body>
+<div class="header">
+  <span class="dot"></span>
+  <h1>${label} — LLM Session</h1>
+  <div class="meta">
+    <span id="meta-tokens"></span>
+    <span id="meta-msgs"></span>
+    <span id="meta-ticks"></span>
+    <span id="meta-uptime"></span>
+  </div>
+</div>
+<div class="controls">
+  <label><input type="checkbox" id="auto-refresh" checked> 自动刷新</label>
+  <label><input type="checkbox" id="auto-scroll" checked> 自动滚底</label>
+  <label><input type="checkbox" id="collapse-tools"> 折叠工具调用</label>
+  <button onclick="location.reload()">手动刷新</button>
+  <button onclick="window.print()">打印 / PDF</button>
+  <div class="status">
+    <span id="conn-status"></span>
+    <span id="last-update" style="margin-left:8px;font-size:11px;color:var(--text-dim)"></span>
+  </div>
+</div>
+<div id="messages"><div class="empty">加载中…</div></div>
+
+<script>
+const API = '/session/api';
+let lastCount = 0;
+let autoRefresh = true;
+let autoScroll = true;
+let collapseTools = false;
+
+document.getElementById('auto-refresh').addEventListener('change', e => { autoRefresh = e.target.checked; });
+document.getElementById('auto-scroll').addEventListener('change', e => { autoScroll = e.target.checked; });
+document.getElementById('collapse-tools').addEventListener('change', e => {
+  collapseTools = e.target.checked;
+  document.querySelectorAll('.tool-call .tool-input, .tool-result .tr-content').forEach(el => {
+    el.style.display = collapseTools ? 'none' : 'block';
+  });
+});
+
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function truncate(s, max) {
+  if (s.length <= max) return s;
+  return s.slice(0, max) + '\\n… [已截断 ' + (s.length - max) + ' 字符]';
+}
+
+function renderBlock(block) {
+  if (block.type === 'text') {
+    return '<div class="content">' + escapeHtml(block.text) + '</div>';
+  }
+  if (block.type === 'tool_use') {
+    const inputStr = typeof block.input === 'string' ? block.input : JSON.stringify(block.input, null, 2);
+    const display = collapseTools ? 'none' : 'block';
+    return '<div class="tool-call">'
+      + '<div class="tool-name">⚡ ' + escapeHtml(block.name) + '</div>'
+      + '<pre class="tool-input" style="display:' + display + '">' + escapeHtml(truncate(inputStr, 2000)) + '</pre>'
+      + '</div>';
+  }
+  if (block.type === 'tool_result') {
+    const cls = block.is_error ? 'tool-result error' : 'tool-result';
+    const label = block.is_error ? '✗ 工具错误' : '✓ 工具返回';
+    const display = collapseTools ? 'none' : 'block';
+    return '<div class="' + cls + '">'
+      + '<div class="tr-label">' + label + ' (' + escapeHtml(block.tool_use_id || '') + ')</div>'
+      + '<pre class="tr-content" style="display:' + display + '">' + escapeHtml(truncate(block.content || '', 3000)) + '</pre>'
+      + '</div>';
+  }
+  return '<div class="content" style="color:var(--text-dim)">[unknown block]</div>';
+}
+
+function renderMessage(m) {
+  let inner = '';
+  if (m.type === 'text') {
+    inner = '<div class="content">' + escapeHtml(m.text) + '</div>';
+  } else if (m.type === 'blocks') {
+    inner = (m.blocks || []).map(renderBlock).join('');
+  }
+  const roleLabel = m.role === 'user' ? 'USER' : 'ASSISTANT';
+  return '<div class="msg ' + m.role + '">'
+    + '<span class="msg-idx">#' + m.idx + '</span>'
+    + '<div class="role-tag">' + roleLabel + '</div>'
+    + inner
+    + '</div>';
+}
+
+function formatUptime(s) {
+  if (s < 60) return s + 's';
+  if (s < 3600) return Math.floor(s/60) + 'm' + (s%60) + 's';
+  return Math.floor(s/3600) + 'h' + Math.floor((s%3600)/60) + 'm';
+}
+
+async function refresh() {
+  try {
+    const r = await fetch(API);
+    const data = await r.json();
+
+    document.getElementById('meta-tokens').textContent = '~' + data.estimatedTokens + ' tokens';
+    document.getElementById('meta-msgs').textContent = data.messageCount + ' msgs';
+    document.getElementById('meta-ticks').textContent = 'tick #' + data.ticks;
+    document.getElementById('meta-uptime').textContent = formatUptime(data.uptime);
+    document.getElementById('conn-status').innerHTML = data.connected
+      ? '<span class="live">● 已连接</span>'
+      : '<span class="off">● 未连接</span>';
+    document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+
+    const container = document.getElementById('messages');
+    if (!data.messages || data.messages.length === 0) {
+      container.innerHTML = '<div class="empty">暂无对话消息，等待事件触发…</div>';
+      lastCount = 0;
+      return;
+    }
+
+    if (data.messages.length !== lastCount) {
+      container.innerHTML = data.messages.map(renderMessage).join('');
+      lastCount = data.messages.length;
+      if (autoScroll) {
+        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+      }
+    }
+  } catch(e) {
+    document.getElementById('conn-status').innerHTML = '<span class="off">● 连接失败</span>';
+  }
+}
+
+refresh();
+setInterval(() => { if (autoRefresh) refresh(); }, 2000);
+</script>
+</body>
+</html>`;
   }
 
   private async cleanup(): Promise<void> {

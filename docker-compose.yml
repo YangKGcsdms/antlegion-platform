@@ -46,6 +46,8 @@ services:
   ant-product:
     build: ./antlegion
     container_name: ant-product
+    ports:
+      - "9091:9090"
     environment:
       - ANT_BUS_URL=http://antlegion-bus:28080
       - ANT_BUS_NAME=product-manager
@@ -78,11 +80,53 @@ services:
       start_period: 30s
 
   # ══════════════════════════════════════════════════════════════════════════════
+  # UI Developer Ant - UI开发（3年经验）
+  # ══════════════════════════════════════════════════════════════════════════════
+  ant-ui:
+    build: ./antlegion
+    container_name: ant-ui
+    ports:
+      - "9095:9090"
+    environment:
+      - ANT_BUS_URL=http://antlegion-bus:28080
+      - ANT_BUS_NAME=ui-developer
+      - ANT_BUS_DESCRIPTION=UI开发：HTML原型、Tailwind CSS、视觉规范、组件标注
+      - ANT_WORKSPACE=/workspace
+      - LLM_PROVIDER_TYPE=${LLM_PROVIDER_TYPE:-openai-compatible}
+      - LLM_BASE_URL=${LLM_BASE_URL}
+      - LLM_API_KEY=${LLM_API_KEY}
+      - LLM_MODEL=${LLM_MODEL}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ANT_CAPABILITY_OFFER=ui-development,html,tailwindcss,prototype,visual-design
+      - ANT_DOMAIN_INTERESTS=ui,design,prototype,visual
+      - ANT_FACT_TYPE_PATTERNS=task.ui.*,bug.found,prd.published,api.contract.published,code.frontend.completed
+    volumes:
+      - ./workspaces/ui:/workspace
+      - ./knowledge-base:/knowledge-base:ro
+      - ./shared-output/code:/shared/code
+      - ./shared-output/docs:/shared/docs:ro
+      - ./shared-output/requirements:/shared/requirements:ro
+    depends_on:
+      antlegion-bus:
+        condition: service_healthy
+    networks:
+      - ant-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:9090/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # ══════════════════════════════════════════════════════════════════════════════
   # Backend Developer Ant - 后端开发（3年经验）
   # ══════════════════════════════════════════════════════════════════════════════
   ant-backend:
     build: ./antlegion
     container_name: ant-backend
+    ports:
+      - "9092:9090"
     environment:
       - ANT_BUS_URL=http://antlegion-bus:28080
       - ANT_BUS_NAME=backend-developer
@@ -121,6 +165,8 @@ services:
   ant-frontend:
     build: ./antlegion
     container_name: ant-frontend
+    ports:
+      - "9093:9090"
     environment:
       - ANT_BUS_URL=http://antlegion-bus:28080
       - ANT_BUS_NAME=frontend-developer
@@ -159,6 +205,8 @@ services:
   ant-tester:
     build: ./antlegion
     container_name: ant-tester
+    ports:
+      - "9094:9090"
     environment:
       - ANT_BUS_URL=http://antlegion-bus:28080
       - ANT_BUS_NAME=qa-tester
@@ -176,7 +224,7 @@ services:
       - ./workspaces/tester:/workspace
       - ./knowledge-base:/knowledge-base:ro
       - ./shared-output/tests:/shared/tests
-      - ./shared-output/docs:/shared/docs:ro
+      - ./shared-output/docs:/shared/docs        # 需要写 quality 报告，不能 ro
       - ./shared-output/requirements:/shared/requirements:ro
       - ./shared-output/code:/shared/code:ro
     depends_on:

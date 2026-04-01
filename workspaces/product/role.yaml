@@ -1,27 +1,20 @@
 role: product-manager
 
-# 可以 claim 的 exclusive fact types（严格限定职责边界）
 claims:
   - requirement.*
   - feature.*
   - clarification.*
 
-# 允许 publish 的 fact types（白名单）
 allowed_publish:
   - prd.published
-  - task.frontend.needed
-  - task.backend.needed
-  - task.test.needed
-  - requirement.updated
   - feature.released
 
-# 被动收集哪些 broadcast 上下文
 context_interests:
+  - ui.prototype.published
   - code.frontend.completed
   - code.backend.completed
   - api.contract.published
   - quality.approved
-  - quality.report.published
   - bug.found
   - bug.fixed
 

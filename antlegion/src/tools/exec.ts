@@ -29,13 +29,13 @@ export function createExecTool(): ToolDefinition {
       type: "object",
       properties: {
         command: { type: "string", description: "要执行的 shell 命令" },
-        timeout_ms: { type: "number", description: "超时毫秒数，默认 30000" },
+        timeout_ms: { type: "number", description: "超时毫秒数，默认 120000（2分钟）" },
       },
       required: ["command"],
     },
     execute: async (input: unknown, ctx: ToolContext) => {
       const { command, timeout_ms } = input as { command: string; timeout_ms?: number };
-      const timeout = timeout_ms ?? 30_000;
+      const timeout = timeout_ms ?? 120_000;
 
       try {
         const { stdout, stderr } = await execFileAsync("sh", ["-c", command], {

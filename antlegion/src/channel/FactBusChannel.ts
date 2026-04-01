@@ -120,8 +120,8 @@ export class LegionBusChannel {
     return this.rest.getFact(factId);
   }
 
-  async heartbeat(): Promise<void> {
-    return this.rest.heartbeat();
+  async heartbeat(status?: { current_action?: string; status_text?: string }): Promise<void> {
+    return this.rest.heartbeat(status);
   }
 
   disconnect(): void {

@@ -145,6 +145,23 @@ export default {
   "admin.noDeadFacts": "暂无死亡事实",
   "admin.redispatch": "重新分派",
 
+  // Kanban
+  "nav.kanban": "看板",
+  "kanban.title": "Agent 看板",
+  "kanban.noAnts": "暂无连接的节点",
+  "kanban.noActivity": "暂无活动记录",
+  "kanban.sessionUnavailable": "Session 不可用",
+  "kanban.phase": "阶段",
+
+  // Batch facts
+  "facts.selected": "已选中",
+  "facts.batchRedispatch": "批量重派发",
+  "facts.batchRelease": "批量释放",
+  "facts.batchDelete": "批量删除",
+  "facts.clearSelection": "清除选择",
+  "facts.batchDone": "批量操作完成",
+  "facts.batchError": "批量操作失败",
+
   // Time
   "time.sAgo": "秒前",
   "time.mAgo": "分钟前",

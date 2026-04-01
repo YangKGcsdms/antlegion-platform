@@ -379,10 +379,12 @@ export class BusEngine {
     this.recordActivity(antId, "disconnect");
   }
 
-  heartbeat(antId: string): AntState {
+  heartbeat(antId: string, status?: { current_action?: string; status_text?: string }): AntState {
     const ant = this.ants.get(antId);
     if (!ant) return "offline";
     ant.last_heartbeat = Date.now() / 1000;
+    if (status?.current_action !== undefined) ant.current_action = status.current_action;
+    if (status?.status_text !== undefined) ant.status_text = status.status_text;
     // Restore from offline state on successful heartbeat
     if (ant.state === "offline") {
       const oldState = ant.state;

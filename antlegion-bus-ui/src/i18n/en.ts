@@ -145,6 +145,23 @@ export default {
   "admin.noDeadFacts": "No dead facts",
   "admin.redispatch": "Redispatch",
 
+  // Kanban
+  "nav.kanban": "Kanban",
+  "kanban.title": "Agent Kanban",
+  "kanban.noAnts": "No agents connected",
+  "kanban.noActivity": "No activity yet",
+  "kanban.sessionUnavailable": "Session unavailable",
+  "kanban.phase": "Phase",
+
+  // Batch facts
+  "facts.selected": "Selected",
+  "facts.batchRedispatch": "Batch Redispatch",
+  "facts.batchRelease": "Batch Release",
+  "facts.batchDelete": "Batch Delete",
+  "facts.clearSelection": "Clear Selection",
+  "facts.batchDone": "Batch completed",
+  "facts.batchError": "Batch failed",
+
   // Time
   "time.sAgo": "s ago",
   "time.mAgo": "m ago",

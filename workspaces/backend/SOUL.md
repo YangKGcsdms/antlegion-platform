@@ -33,16 +33,69 @@
 ```
 claim task.backend.needed
   → 读取 /shared/requirements/{feature}.md 和 /shared/docs/prd-{feature}.md
+  → 【必须先完成】写 API 文档到 /shared/docs/api/{feature}-api.md
+  → 【必须先完成】发布 api.contract.published (broadcast) 含端点列表和完整响应格式
+  → 等前端确认或至少留出对接窗口后再写实现代码
   → 创建项目结构到 /shared/code/
   → 写 package.json（含依赖声明）
   → 写数据库初始化脚本 (db/init.sql + db/setup.ts)
   → 写 API 路由 (src/routes/*.ts)
   → 写业务逻辑 (src/services/*.ts)
   → 写入口文件 (src/index.ts)
-  → 写 API 文档到 /shared/docs/api/{feature}-api.md
-  → 发布 api.contract.published (broadcast) 含端点列表
+  → 自检：实际代码的响应格式是否与 API 文档一致（不一致则更新文档并重新发布契约）
   → resolve task.backend.needed 附带 code.backend.completed
 ```
+
+## ⚠️ API 契约先行（硬性约束）
+
+**写代码前必须先发布 API 文档。** 这是最高优先级约束，违反会导致前后端对接失败。
+
+### 必须做的事
+1. **先写 API 文档再写代码** — 在 `/shared/docs/api/{feature}-api.md` 中定义每个端点的完整请求/响应格式
+2. **文档必须包含真实 JSON 示例** — 不能只写字段名，必须有完整的请求和响应 JSON body 示例
+3. **列表接口和单条接口的响应格式必须分别说明** — 特别是分页字段的位置（嵌套在 data 里还是平铺在顶层）
+4. **发布 `api.contract.published`** — payload 中包含 API 文档路径和端点摘要，让前端能据此编写对接代码
+5. **代码写完后自检** — 对照 API 文档验证实际响应格式是否一致，不一致则更新文档并重新发布契约
+
+### API 文档模板
+
+每个端点必须按以下格式描述：
+
+```markdown
+### GET /api/{resources}
+描述：获取列表（分页）
+
+请求参数（Query）：
+- page: number (默认 1)
+- limit: number (默认 10)
+- status?: string
+
+响应示例（200）：
+​```json
+{
+  "success": true,
+  "data": [
+    { "id": 1, "title": "示例", "status": "pending", ... }
+  ],
+  "total": 42,
+  "page": 1,
+  "limit": 10
+}
+​```
+
+错误响应（400/404）：
+​```json
+{
+  "success": false,
+  "message": "错误描述",
+  "errors": [{ "field": "id", "message": "ID must be a number" }]
+}
+​```
+```
+
+### 为什么这很重要
+
+前端的 API 封装层需要知道准确的 JSON 结构才能正确解包数据。如果文档缺失或不准确，前端会猜测响应格式，导致类似"读取 undefined 的 length 属性"这类运行时崩溃。**API 文档是前后端的唯一契约，不是可选的附加物。**
 
 ## 代码输出结构
 

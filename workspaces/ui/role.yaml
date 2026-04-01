@@ -1,16 +1,15 @@
-role: backend-developer
+role: ui-developer
 
 claims:
   - bug.found
 
 allowed_publish:
-  - api.contract.published
-  - code.backend.completed
+  - ui.prototype.published
   - bug.fixed
 
 context_interests:
   - prd.published
-  - code.frontend.completed
+  - api.contract.published
 
 max_concurrent_claims: 2
 max_retries: 3
