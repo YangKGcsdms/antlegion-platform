@@ -19,6 +19,8 @@ export interface RoleConfigData {
   allowed_publish: string[];
   /** 关注的 broadcast fact types（收入 ContextBuffer） */
   context_interests: string[];
+  /** 最大同时认领数（发送给 bus 的 max_concurrent_claims） */
+  max_concurrent_claims: number;
   /** 最大重试次数 */
   max_retries: number;
   /** 最大工具调用轮次 (覆盖 DEFAULT_AGENT_CONFIG) */
@@ -30,6 +32,7 @@ const DEFAULT_ROLE_CONFIG: RoleConfigData = {
   claims: ["*"],
   allowed_publish: ["*"],
   context_interests: [],
+  max_concurrent_claims: 1,
   max_retries: 2,
   max_tool_rounds: 50,
 };
@@ -55,6 +58,10 @@ export class RoleConfig {
   isContextInterest(factType: string): boolean {
     if (this.data.context_interests.length === 0) return true; // 未配置则全部接收
     return this.data.context_interests.some((p) => matchPattern(p, factType));
+  }
+
+  get maxConcurrentClaims(): number {
+    return this.data.max_concurrent_claims;
   }
 
   get maxRetries(): number {

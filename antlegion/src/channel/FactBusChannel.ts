@@ -29,7 +29,7 @@ export class LegionBusChannel {
   }
 
   /** 注册节点 + 建立 WebSocket */
-  async connect(): Promise<AntResponse> {
+  async connect(maxConcurrentClaims?: number): Promise<AntResponse> {
     const filter = this.config.filter;
     const antResponse = await this.rest.connect({
       name: this.config.name,
@@ -44,6 +44,7 @@ export class LegionBusChannel {
       min_epistemic_rank: filter.minEpistemicRank,
       min_confidence: filter.minConfidence,
       exclude_superseded: filter.excludeSuperseded,
+      max_concurrent_claims: maxConcurrentClaims,
     });
 
     // 启动 WebSocket

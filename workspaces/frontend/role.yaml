@@ -1,21 +1,24 @@
 role: frontend-developer
 
+# 可以 claim 的 exclusive fact types
+# bug.found 通过 bus 仲裁的 need_capabilities 路由到这里
 claims:
   - task.frontend.*
-  - bug.frontend.*
   - bug.found
 
+# 允许 publish 的 fact types（白名单）
 allowed_publish:
   - code.frontend.completed
   - code.frontend.component.created
   - code.frontend.page.created
   - bug.fixed
 
+# 被动收集哪些 broadcast 上下文
 context_interests:
   - prd.published
-  - requirement.created
   - api.contract.published
   - code.backend.completed
 
+max_concurrent_claims: 2
 max_retries: 3
 max_tool_rounds: 50

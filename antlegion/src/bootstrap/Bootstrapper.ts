@@ -96,17 +96,7 @@ export class Bootstrapper {
     const metrics = new MetricsCollector();
     const hooks = new HookRegistry();
 
-    // ── 2. connect to bus ──
-    const channel = new LegionBusChannel(config.bus, config.agent.eventQueueCapacity);
-    const ant = await channel.connect();
-    const agentId = ant.ant_id;
-    logger.info("connected", { antId: agentId, name: ant.name });
-
-    // ── 3. create base LLM provider ──
-    let provider: LlmProvider = createSingleProvider(config.provider);
-    logger.info("provider ready", { type: config.provider.type, model: config.provider.model });
-
-    // ── 4. load role config (safety net) ──
+    // ── 2. load role config (before connect, need max_concurrent_claims) ──
     const roleConfig = loadRoleConfig(config.workspace);
     const contextBuffer = new ContextBuffer({
       contextInterests: roleConfig.data.context_interests,
@@ -115,7 +105,18 @@ export class Bootstrapper {
       role: roleConfig.role,
       claims: roleConfig.data.claims,
       allowedPublish: roleConfig.data.allowed_publish,
+      maxConcurrentClaims: roleConfig.maxConcurrentClaims,
     });
+
+    // ── 3. connect to bus ──
+    const channel = new LegionBusChannel(config.bus, config.agent.eventQueueCapacity);
+    const ant = await channel.connect(roleConfig.maxConcurrentClaims);
+    const agentId = ant.ant_id;
+    logger.info("connected", { antId: agentId, name: ant.name });
+
+    // ── 4. create base LLM provider ──
+    let provider: LlmProvider = createSingleProvider(config.provider);
+    logger.info("provider ready", { type: config.provider.type, model: config.provider.model });
 
     // ── 5. build tool registry with core tools ──
     const activeClaims = new Set<string>();

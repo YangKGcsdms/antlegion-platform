@@ -1,6 +1,6 @@
 role: product-manager
 
-# 可以 claim 的 exclusive fact types
+# 可以 claim 的 exclusive fact types（严格限定职责边界）
 claims:
   - requirement.*
   - feature.*
@@ -20,9 +20,11 @@ context_interests:
   - code.frontend.completed
   - code.backend.completed
   - api.contract.published
-  - test.execution.completed
   - quality.approved
+  - quality.report.published
   - bug.found
+  - bug.fixed
 
+max_concurrent_claims: 1
 max_retries: 2
 max_tool_rounds: 50

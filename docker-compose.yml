@@ -57,8 +57,8 @@ services:
       - LLM_MODEL=${LLM_MODEL}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - ANT_CAPABILITY_OFFER=requirement-analysis,prd-writing,task-breakdown,acceptance-criteria
-      - ANT_DOMAIN_INTERESTS=product,requirement,feature,user-story,quality
-      - ANT_FACT_TYPE_PATTERNS=requirement.*,feature.*,task.*,prd.*,quality.*,code.*
+      - ANT_DOMAIN_INTERESTS=product,requirement,feature,user-story
+      - ANT_FACT_TYPE_PATTERNS=requirement.*,feature.*,clarification.*,code.backend.completed,code.frontend.completed,api.contract.published,quality.approved,quality.report.published,bug.found,bug.fixed
     volumes:
       - ./workspaces/product:/workspace
       - ./knowledge-base:/knowledge-base:ro
@@ -94,8 +94,8 @@ services:
       - LLM_MODEL=${LLM_MODEL}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - ANT_CAPABILITY_OFFER=backend-development,api-design,database,nodejs,typescript,express
-      - ANT_DOMAIN_INTERESTS=backend,api,database,service,architecture
-      - ANT_FACT_TYPE_PATTERNS=task.backend.*,api.*,code.backend.*,bug.*,prd.*
+      - ANT_DOMAIN_INTERESTS=backend,api,database,service
+      - ANT_FACT_TYPE_PATTERNS=task.backend.*,bug.found,prd.published,api.contract.published,code.frontend.completed
     volumes:
       - ./workspaces/backend:/workspace
       - ./knowledge-base:/knowledge-base:ro
@@ -132,8 +132,8 @@ services:
       - LLM_MODEL=${LLM_MODEL}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - ANT_CAPABILITY_OFFER=frontend-development,ui-component,react,typescript,tailwindcss
-      - ANT_DOMAIN_INTERESTS=frontend,ui,component,style,layout
-      - ANT_FACT_TYPE_PATTERNS=task.frontend.*,code.frontend.*,api.contract.*,bug.*,prd.*
+      - ANT_DOMAIN_INTERESTS=frontend,ui,component,style
+      - ANT_FACT_TYPE_PATTERNS=task.frontend.*,bug.found,prd.published,api.contract.published,code.backend.completed
     volumes:
       - ./workspaces/frontend:/workspace
       - ./knowledge-base:/knowledge-base:ro
@@ -171,8 +171,8 @@ services:
       - LLM_MODEL=${LLM_MODEL}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - ANT_CAPABILITY_OFFER=testing,test-case-design,api-testing,bug-report,quality-assurance
-      - ANT_DOMAIN_INTERESTS=test,quality,bug,automation,coverage
-      - ANT_FACT_TYPE_PATTERNS=task.test.*,test.*,bug.*,quality.*,code.*,prd.*
+      - ANT_DOMAIN_INTERESTS=test,quality,automation
+      - ANT_FACT_TYPE_PATTERNS=task.test.*,bug.verify.*,prd.published,code.backend.completed,code.frontend.completed,api.contract.published,bug.fixed
     volumes:
       - ./workspaces/tester:/workspace
       - ./knowledge-base:/knowledge-base:ro

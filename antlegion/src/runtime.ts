@@ -121,26 +121,47 @@ export class Runtime {
         });
       } else if (event.fact?.mode === "exclusive" && event.event_type === "fact_available") {
         const factId = event.fact.fact_id;
+        const factType = event.fact.fact_type;
+
+        // ── claims 白名单校验：只 claim 本角色职责范围内的 fact ──
+        if (!this.ctx.roleConfig.shouldClaim(factType)) {
+          this.ctx.logger.info("exclusive fact not in claims scope, buffering as context", {
+            factType,
+            factId,
+          });
+          this.ctx.contextBuffer.add(event.fact);
+          continue;
+        }
+
+        // ── 自发布防护：不 claim 自己发布的 fact ──
+        if (event.fact.source_ant_id === this.ctx.channel.antId) {
+          this.ctx.logger.info("skipping self-published exclusive fact", {
+            factType,
+            factId,
+          });
+          continue;
+        }
+
         try {
           const result = await this.ctx.channel.claim(factId);
           if (result.success) {
             this.ctx.toolContext.activeClaims.add(factId);
             preClaimedIds.add(factId);
             this.ctx.logger.info("pre-claimed exclusive fact", {
-              factType: event.fact.fact_type,
+              factType,
               factId,
             });
             actionableEvents.push(event);
           } else {
             this.ctx.logger.info("exclusive fact lost to another ant, skipping", {
-              factType: event.fact.fact_type,
+              factType,
               factId,
               reason: result.error,
             });
           }
         } catch (err) {
           this.ctx.logger.warn("pre-claim failed, skipping exclusive fact", {
-            factType: event.fact.fact_type,
+            factType,
             factId,
             error: String(err),
           });

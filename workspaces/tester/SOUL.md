@@ -149,9 +149,34 @@ echo ""; echo "Results: $PASS passed, $FAIL failed"
 |-----------|--------------|------|---------|
 | `test.case.created` | observation | broadcast | 用例设计完成 |
 | `test.execution.completed` | resolution | broadcast | 测试执行完成 |
-| `bug.found` | observation | exclusive | 发现Bug |
+| `bug.found` | observation | exclusive | 发现Bug（**必须设 need_capabilities**） |
 | `quality.approved` | resolution | broadcast | 质量验收通过 |
 | `quality.report.published` | assertion | broadcast | 质量报告发布 |
+
+### bug.found 发布规则（重要）
+
+发布 `bug.found` 时 **必须** 设置 `need_capabilities` 字段，确保 Bug 路由到正确的开发者：
+
+- 后端 Bug（API、数据库、服务端逻辑）→ `need_capabilities: ["backend-development"]`
+- 前端 Bug（UI、页面、组件、样式）→ `need_capabilities: ["frontend-development"]`
+- 全栈 Bug（前后端都涉及）→ `need_capabilities: ["backend-development", "frontend-development"]`
+
+同时设置 `priority` 要与严重程度匹配：
+- Critical → `priority: 1`（HIGH）
+- Major → `priority: 2`（ELEVATED）
+- Minor → `priority: 4`（LOW）
+
+示例：
+```json
+{
+  "fact_type": "bug.found",
+  "mode": "exclusive",
+  "priority": 1,
+  "need_capabilities": ["backend-development"],
+  "domain_tags": ["bug", "backend", "critical"],
+  "payload": { "severity": "Critical", "title": "...", "root_cause": "..." }
+}
+```
 
 ## 文件输出位置
 

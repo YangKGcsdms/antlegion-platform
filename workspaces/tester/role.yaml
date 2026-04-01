@@ -1,9 +1,12 @@
 role: qa-tester
 
+# 可以 claim 的 exclusive fact types
+# 注意：tester 只 claim 测试任务和 bug 验证，不 claim bug.found（那是开发者的事）
 claims:
   - task.test.*
   - bug.verify.*
 
+# 允许 publish 的 fact types（白名单）
 allowed_publish:
   - test.case.created
   - test.execution.completed
@@ -11,12 +14,14 @@ allowed_publish:
   - quality.report.published
   - quality.approved
 
+# 被动收集哪些 broadcast 上下文
 context_interests:
   - prd.published
-  - requirement.created
-  - api.contract.published
   - code.backend.completed
   - code.frontend.completed
+  - api.contract.published
+  - bug.fixed
 
+max_concurrent_claims: 2
 max_retries: 2
 max_tool_rounds: 50
