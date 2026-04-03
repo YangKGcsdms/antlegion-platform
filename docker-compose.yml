@@ -41,7 +41,7 @@ services:
     restart: unless-stopped
 
   # ══════════════════════════════════════════════════════════════════════════════
-  # Product Manager Ant - 产品经理（3年经验）
+  # Product Manager Ant - 产品经理 · 需求域 (DDD)
   # ══════════════════════════════════════════════════════════════════════════════
   ant-product:
     build: ./antlegion
@@ -51,16 +51,16 @@ services:
     environment:
       - ANT_BUS_URL=http://antlegion-bus:28080
       - ANT_BUS_NAME=product-manager
-      - ANT_BUS_DESCRIPTION=产品经理：需求分析、PRD编写、任务拆分、验收确认
+      - ANT_BUS_DESCRIPTION=产品经理（需求域）：需求分析、PRD编写、验收发布
       - ANT_WORKSPACE=/workspace
       - LLM_PROVIDER_TYPE=${LLM_PROVIDER_TYPE:-openai-compatible}
       - LLM_BASE_URL=${LLM_BASE_URL}
       - LLM_API_KEY=${LLM_API_KEY}
       - LLM_MODEL=${LLM_MODEL}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - ANT_CAPABILITY_OFFER=requirement-analysis,prd-writing,task-breakdown,acceptance-criteria
-      - ANT_DOMAIN_INTERESTS=product,requirement,feature,user-story
-      - ANT_FACT_TYPE_PATTERNS=requirement.*,feature.*,clarification.*,code.backend.completed,code.frontend.completed,api.contract.published,quality.approved,quality.report.published,bug.found,bug.fixed
+      - ANT_CAPABILITY_OFFER=requirement-analysis,prd-writing,acceptance-criteria
+      - ANT_DOMAIN_INTERESTS=product,requirement
+      - ANT_FACT_TYPE_PATTERNS=requirement.submitted,quality.approved
     volumes:
       - ./workspaces/product:/workspace
       - ./knowledge-base:/knowledge-base:ro
@@ -80,7 +80,7 @@ services:
       start_period: 30s
 
   # ══════════════════════════════════════════════════════════════════════════════
-  # UI Developer Ant - UI开发（3年经验）
+  # UI Designer Ant - UI设计师 · 设计域 (DDD)
   # ══════════════════════════════════════════════════════════════════════════════
   ant-ui:
     build: ./antlegion
@@ -89,17 +89,17 @@ services:
       - "9095:9090"
     environment:
       - ANT_BUS_URL=http://antlegion-bus:28080
-      - ANT_BUS_NAME=ui-developer
-      - ANT_BUS_DESCRIPTION=UI开发：HTML原型、Tailwind CSS、视觉规范、组件标注
+      - ANT_BUS_NAME=ui-designer
+      - ANT_BUS_DESCRIPTION=UI设计师（设计域）：HTML原型、Tailwind CSS、视觉规范、组件标注
       - ANT_WORKSPACE=/workspace
       - LLM_PROVIDER_TYPE=${LLM_PROVIDER_TYPE:-openai-compatible}
       - LLM_BASE_URL=${LLM_BASE_URL}
       - LLM_API_KEY=${LLM_API_KEY}
       - LLM_MODEL=${LLM_MODEL}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - ANT_CAPABILITY_OFFER=ui-development,html,tailwindcss,prototype,visual-design
-      - ANT_DOMAIN_INTERESTS=ui,design,prototype,visual
-      - ANT_FACT_TYPE_PATTERNS=task.ui.*,bug.found,prd.published,api.contract.published,code.frontend.completed
+      - ANT_CAPABILITY_OFFER=ui-design,html,tailwindcss,prototype,visual-design
+      - ANT_DOMAIN_INTERESTS=ui,design
+      - ANT_FACT_TYPE_PATTERNS=prd.published
     volumes:
       - ./workspaces/ui:/workspace
       - ./knowledge-base:/knowledge-base:ro
@@ -120,7 +120,7 @@ services:
       start_period: 30s
 
   # ══════════════════════════════════════════════════════════════════════════════
-  # Backend Developer Ant - 后端开发（3年经验）
+  # Backend Developer Ant - 后端开发 · 后端实现域 (DDD)
   # ══════════════════════════════════════════════════════════════════════════════
   ant-backend:
     build: ./antlegion
@@ -130,7 +130,7 @@ services:
     environment:
       - ANT_BUS_URL=http://antlegion-bus:28080
       - ANT_BUS_NAME=backend-developer
-      - ANT_BUS_DESCRIPTION=后端开发：Node.js/Express API开发、SQLite数据库、业务逻辑
+      - ANT_BUS_DESCRIPTION=后端开发（后端实现域）：Node.js/Express API开发、SQLite数据库
       - ANT_WORKSPACE=/workspace
       - LLM_PROVIDER_TYPE=${LLM_PROVIDER_TYPE:-openai-compatible}
       - LLM_BASE_URL=${LLM_BASE_URL}
@@ -138,8 +138,8 @@ services:
       - LLM_MODEL=${LLM_MODEL}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - ANT_CAPABILITY_OFFER=backend-development,api-design,database,nodejs,typescript,express
-      - ANT_DOMAIN_INTERESTS=backend,api,database,service
-      - ANT_FACT_TYPE_PATTERNS=task.backend.*,bug.found,prd.published,api.contract.published,code.frontend.completed
+      - ANT_DOMAIN_INTERESTS=backend,api
+      - ANT_FACT_TYPE_PATTERNS=prd.published,design.published,bug.found
     volumes:
       - ./workspaces/backend:/workspace
       - ./knowledge-base:/knowledge-base:ro
@@ -160,7 +160,7 @@ services:
       start_period: 30s
 
   # ══════════════════════════════════════════════════════════════════════════════
-  # Frontend Developer Ant - 前端开发（3年经验）
+  # Frontend Developer Ant - 前端开发 · 前端实现域 (DDD)
   # ══════════════════════════════════════════════════════════════════════════════
   ant-frontend:
     build: ./antlegion
@@ -170,16 +170,16 @@ services:
     environment:
       - ANT_BUS_URL=http://antlegion-bus:28080
       - ANT_BUS_NAME=frontend-developer
-      - ANT_BUS_DESCRIPTION=前端开发：React/TypeScript页面开发、Tailwind CSS、API对接
+      - ANT_BUS_DESCRIPTION=前端开发（前端实现域）：React/TypeScript页面开发、API对接
       - ANT_WORKSPACE=/workspace
       - LLM_PROVIDER_TYPE=${LLM_PROVIDER_TYPE:-openai-compatible}
       - LLM_BASE_URL=${LLM_BASE_URL}
       - LLM_API_KEY=${LLM_API_KEY}
       - LLM_MODEL=${LLM_MODEL}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - ANT_CAPABILITY_OFFER=frontend-development,ui-component,react,typescript,tailwindcss
-      - ANT_DOMAIN_INTERESTS=frontend,ui,component,style
-      - ANT_FACT_TYPE_PATTERNS=task.frontend.*,bug.found,prd.published,api.contract.published,code.backend.completed
+      - ANT_CAPABILITY_OFFER=frontend-development,react,typescript,tailwindcss
+      - ANT_DOMAIN_INTERESTS=frontend,ui
+      - ANT_FACT_TYPE_PATTERNS=design.published,api.published,bug.found
     volumes:
       - ./workspaces/frontend:/workspace
       - ./knowledge-base:/knowledge-base:ro
@@ -200,7 +200,7 @@ services:
       start_period: 30s
 
   # ══════════════════════════════════════════════════════════════════════════════
-  # QA Tester Ant - 测试工程师（3年经验）
+  # QA Tester Ant - 测试工程师 · 质量域 (DDD)
   # ══════════════════════════════════════════════════════════════════════════════
   ant-tester:
     build: ./antlegion
@@ -210,7 +210,7 @@ services:
     environment:
       - ANT_BUS_URL=http://antlegion-bus:28080
       - ANT_BUS_NAME=qa-tester
-      - ANT_BUS_DESCRIPTION=测试工程师：测试用例设计、API测试脚本、Bug报告、质量验收
+      - ANT_BUS_DESCRIPTION=测试工程师（质量域）：测试用例设计、API测试、Bug报告、质量验收
       - ANT_WORKSPACE=/workspace
       - LLM_PROVIDER_TYPE=${LLM_PROVIDER_TYPE:-openai-compatible}
       - LLM_BASE_URL=${LLM_BASE_URL}
@@ -218,8 +218,8 @@ services:
       - LLM_MODEL=${LLM_MODEL}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - ANT_CAPABILITY_OFFER=testing,test-case-design,api-testing,bug-report,quality-assurance
-      - ANT_DOMAIN_INTERESTS=test,quality,automation
-      - ANT_FACT_TYPE_PATTERNS=task.test.*,bug.verify.*,prd.published,code.backend.completed,code.frontend.completed,api.contract.published,bug.fixed
+      - ANT_DOMAIN_INTERESTS=test,quality
+      - ANT_FACT_TYPE_PATTERNS=prd.published,backend.done,frontend.done
     volumes:
       - ./workspaces/tester:/workspace
       - ./knowledge-base:/knowledge-base:ro

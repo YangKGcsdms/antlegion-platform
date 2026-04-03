@@ -17,6 +17,8 @@ export interface ToolContext {
   activeClaims: Set<string>;
   /** PublishFilter: 允许 LLM 发布的 fact_type patterns（来自 role.yaml） */
   allowedPublishPatterns?: string[];
+  /** PublishMode: fact_type → 强制 mode 映射（来自 role.yaml publish_modes） */
+  publishModeResolver?: (factType: string) => "exclusive" | "broadcast" | undefined;
   /** 插件扩展数据（用 symbol key 避免冲突） */
   extensions: Map<symbol, unknown>;
 }

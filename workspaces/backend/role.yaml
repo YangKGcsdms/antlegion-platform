@@ -1,16 +1,25 @@
 role: backend-developer
 
+# ── DDD 后端实现域 ──
+# IN  (3/3): prd.published, design.published, bug.found
+# OUT (2/2): api.published, backend.done
+
 claims:
   - bug.found
 
 allowed_publish:
-  - api.contract.published
-  - code.backend.completed
-  - bug.fixed
+  - api.published
+  - backend.done
+
+publish_modes:
+  - fact_type: api.published
+    mode: broadcast
+  - fact_type: backend.done
+    mode: broadcast
 
 context_interests:
   - prd.published
-  - code.frontend.completed
+  - design.published
 
 max_concurrent_claims: 2
 max_retries: 3

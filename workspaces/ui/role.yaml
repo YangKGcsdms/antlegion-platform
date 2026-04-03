@@ -1,16 +1,21 @@
-role: ui-developer
+role: ui-designer
 
-claims:
-  - bug.found
+# ── DDD 设计域 ──
+# IN  (1/3): prd.published
+# OUT (1/2): design.published
+
+claims: []
 
 allowed_publish:
-  - ui.prototype.published
-  - bug.fixed
+  - design.published
+
+publish_modes:
+  - fact_type: design.published
+    mode: broadcast
 
 context_interests:
   - prd.published
-  - api.contract.published
 
-max_concurrent_claims: 2
+max_concurrent_claims: 1
 max_retries: 3
 max_tool_rounds: 50

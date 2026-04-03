@@ -1,18 +1,25 @@
 role: qa-tester
 
-claims:
-  - bug.found
+# ── DDD 质量域 ──
+# IN  (3/3): prd.published, backend.done, frontend.done
+# OUT (2/2): bug.found, quality.approved
+
+claims: []
 
 allowed_publish:
   - bug.found
   - quality.approved
 
+publish_modes:
+  - fact_type: bug.found
+    mode: exclusive
+  - fact_type: quality.approved
+    mode: broadcast
+
 context_interests:
   - prd.published
-  - api.contract.published
-  - code.backend.completed
-  - code.frontend.completed
-  - bug.fixed
+  - backend.done
+  - frontend.done
 
 max_concurrent_claims: 2
 max_retries: 3

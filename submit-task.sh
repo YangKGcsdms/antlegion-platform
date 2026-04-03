@@ -121,8 +121,8 @@ if [ -z "$ANT_ID" ]; then
 fi
 echo -e "${GREEN}[OK] 发布者 ID: ${ANT_ID}${NC}"
 
-# ── 发布 requirement.created fact ──
-echo -e "${BLUE}[2/3] 发布需求 fact...${NC}"
+# ── 发布 requirement.submitted fact (DDD 入口事实) ──
+echo -e "${BLUE}[2/3] 发布需求 fact (requirement.submitted)...${NC}"
 
 # 转义JSON中的特殊字符
 PAYLOAD_JSON=$(python3 -c "
@@ -146,7 +146,7 @@ print(json.dumps(payload))
 FACT_RESP=$(curl -s -X POST "$BUS_URL/facts" \
   -H "Content-Type: application/json" \
   -d "{
-    \"fact_type\": \"requirement.created\",
+    \"fact_type\": \"requirement.submitted\",
     \"semantic_kind\": \"observation\",
     \"payload\": $PAYLOAD_JSON,
     \"domain_tags\": [\"requirement\", \"$FEATURE_NAME\"],
@@ -178,11 +178,13 @@ echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}  需求已发布！多智能体流水线已触发${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
-echo "  工作流程："
-echo "  1. [产品经理] 接收需求 → 分析 → 写PRD → 拆分任务"
-echo "  2. [后端开发] 认领后端任务 → 设计API → 写代码"
-echo "  3. [前端开发] 认领前端任务 → 实现页面 → 对接API"
-echo "  4. [测试工程] 认领测试任务 → 写用例 → 执行测试"
+echo "  DDD 事实流（5域自发协作）："
+echo "  1. [产品·需求域]   claim requirement.submitted → 写PRD → prd.published"
+echo "  2. [UI·设计域]     感知 prd.published → 出HTML原型 → design.published"
+echo "  3. [后端·后端域]   感知 prd.published → API契约 → api.published → backend.done"
+echo "  4. [前端·前端域]   等待 design.published + api.published → 实现 → frontend.done"
+echo "  5. [测试·质量域]   等待 backend.done + frontend.done → 测试 → quality.approved"
+echo "  6. [产品·需求域]   感知 quality.approved → release.approved (终态)"
 echo ""
 echo "  监控："
 echo "    Dashboard:  http://localhost:3000"

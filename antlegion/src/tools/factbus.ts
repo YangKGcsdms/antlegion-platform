@@ -30,9 +30,10 @@ export function createLegionBusTools(): ToolDefinition[] {
       },
       execute: async (input: unknown, ctx: ToolContext) => {
         const p = input as Record<string, unknown>;
+        const factType = p.fact_type as string;
+
         // PublishFilter: 校验 fact_type 白名单
         if (ctx.allowedPublishPatterns && ctx.allowedPublishPatterns.length > 0) {
-          const factType = p.fact_type as string;
           const allowed = ctx.allowedPublishPatterns.some((pat: string) => matchPattern(pat, factType));
           if (!allowed) {
             return {
@@ -40,14 +41,24 @@ export function createLegionBusTools(): ToolDefinition[] {
             };
           }
         }
+
+        // PublishMode: 从 role.yaml publish_modes 强制覆盖 mode（防止 LLM 遗忘）
+        let resolvedMode = p.mode as string | undefined;
+        if (ctx.publishModeResolver) {
+          const forced = ctx.publishModeResolver(factType);
+          if (forced) {
+            resolvedMode = forced;
+          }
+        }
+
         const fact = await ctx.channel.publish({
-          fact_type: p.fact_type as string,
+          fact_type: factType,
           payload: (p.payload as Record<string, unknown>) ?? {},
           semantic_kind: p.semantic_kind as string | undefined,
           domain_tags: p.domain_tags as string[] | undefined,
           need_capabilities: p.need_capabilities as string[] | undefined,
           priority: p.priority as number | undefined,
-          mode: p.mode as string | undefined,
+          mode: resolvedMode,
           ttl_seconds: p.ttl_seconds as number | undefined,
           confidence: p.confidence as number | undefined,
           parent_fact_id: p.parent_fact_id as string | undefined,
@@ -103,6 +114,18 @@ export function createLegionBusTools(): ToolDefinition[] {
       },
       execute: async (input: unknown, ctx: ToolContext) => {
         const p = input as { fact_id: string; result_facts?: Array<Record<string, unknown>> };
+
+        // PublishMode: 对 result_facts 中的每个子事实也强制覆盖 mode
+        if (p.result_facts && ctx.publishModeResolver) {
+          for (const rf of p.result_facts) {
+            const ft = rf.fact_type as string;
+            if (ft) {
+              const forced = ctx.publishModeResolver(ft);
+              if (forced) rf.mode = forced;
+            }
+          }
+        }
+
         await ctx.channel.resolve(p.fact_id, p.result_facts as never);
         ctx.activeClaims.delete(p.fact_id);
         return { resolved: true, fact_id: p.fact_id };

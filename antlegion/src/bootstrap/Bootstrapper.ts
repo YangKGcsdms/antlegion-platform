@@ -180,6 +180,7 @@ export class Bootstrapper {
       agentId,
       activeClaims,
       allowedPublishPatterns: roleConfig.data.allowed_publish,
+      publishModeResolver: (ft: string) => roleConfig.getPublishMode(ft),
       extensions: this.contextExtensions,
     };
 

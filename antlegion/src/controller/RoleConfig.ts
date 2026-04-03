@@ -11,12 +11,19 @@
 import fs from "node:fs";
 import path from "node:path";
 
+export interface PublishModeEntry {
+  fact_type: string;
+  mode: "exclusive" | "broadcast";
+}
+
 export interface RoleConfigData {
   role: string;
   /** glob patterns — 匹配哪些 exclusive facts 可以 claim */
   claims: string[];
   /** 允许 LLM publish 的 fact_type patterns */
   allowed_publish: string[];
+  /** 每种 fact_type 的强制 mode（防止 LLM 遗忘） */
+  publish_modes: PublishModeEntry[];
   /** 关注的 broadcast fact types（收入 ContextBuffer） */
   context_interests: string[];
   /** 最大同时认领数（发送给 bus 的 max_concurrent_claims） */
@@ -31,6 +38,7 @@ const DEFAULT_ROLE_CONFIG: RoleConfigData = {
   role: "generic-agent",
   claims: ["*"],
   allowed_publish: ["*"],
+  publish_modes: [],
   context_interests: [],
   max_concurrent_claims: 1,
   max_retries: 2,
@@ -52,6 +60,16 @@ export class RoleConfig {
   /** 判断一个 fact_type 是否允许 publish */
   canPublish(factType: string): boolean {
     return this.data.allowed_publish.some((p) => matchPattern(p, factType));
+  }
+
+  /** 根据 publish_modes 配置获取 fact_type 的强制 mode，未配置则返回 undefined */
+  getPublishMode(factType: string): "exclusive" | "broadcast" | undefined {
+    for (const entry of this.data.publish_modes) {
+      if (matchPattern(entry.fact_type, factType)) {
+        return entry.mode;
+      }
+    }
+    return undefined;
   }
 
   /** 判断一个 broadcast fact_type 是否在此角色的关注范围内 */
@@ -189,7 +207,8 @@ function parseSimpleYaml(content: string): Record<string, unknown> {
   return result;
 }
 
-function parseValue(s: string): string | number | boolean {
+function parseValue(s: string): string | number | boolean | unknown[] {
+  if (s === "[]") return []; // empty array literal
   if (s === "true") return true;
   if (s === "false") return false;
   const num = Number(s);

@@ -124,10 +124,20 @@ export class Runtime {
     for (const event of events) {
       if (event.fact?.mode === "broadcast") {
         this.ctx.contextBuffer.add(event.fact);
-        this.ctx.logger.info("context buffered", {
-          factType: event.fact.fact_type,
-          factId: event.fact.fact_id,
-        });
+
+        // DDD: broadcast facts matching context_interests also trigger agent turns
+        if (this.ctx.roleConfig.isContextInterest(event.fact.fact_type)) {
+          actionableEvents.push(event);
+          this.ctx.logger.info("broadcast fact triggers agent turn (context_interest match)", {
+            factType: event.fact.fact_type,
+            factId: event.fact.fact_id,
+          });
+        } else {
+          this.ctx.logger.info("context buffered (no trigger)", {
+            factType: event.fact.fact_type,
+            factId: event.fact.fact_id,
+          });
+        }
       } else if (event.fact?.mode === "exclusive" && event.event_type === "fact_available") {
         const factId = event.fact.fact_id;
         const factType = event.fact.fact_type;
