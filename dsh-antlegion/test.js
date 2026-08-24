@@ -11,7 +11,7 @@
 
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
+import { spawn, execFile } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -140,4 +140,27 @@ test('retracting the LATEST registration is how a DCU leaves the roster (§8.5)'
 
   await client.tombstone(reg.id)
   assert.equal(colony(await client.query({ since: 0, limit: 10000 })).some((r) => r.author === author), false)
+})
+
+test('--roster folds the roster instead of re-deriving it', async () => {
+  // §8.5 lets an agent spell its declaration `interests`/`publishes` OR
+  // `listens`/`produces`, and `colony()` merges both. check.js used to read
+  // only the first pair and scan for the latest per author by hand, so every
+  // peer using the other spelling rendered as "wakes on [—] emits [—]" — and a
+  // departed agent (latest registration retracted) stayed on the list.
+  const ant = new ClientV2(httpTransport(BUS), 'legacy-speller@ant')
+  await ant.publish('sys.registry', { listens: ['plan.ready'], produces: ['plan.done'] })
+
+  const leaver = new ClientV2(httpTransport(BUS), 'has-left@ant')
+  const { id } = await leaver.publish('sys.registry', { interests: ['x.*'], publishes: ['x.done'] })
+  await leaver.tombstone(id)
+
+  const out = await new Promise((resolve, reject) => {
+    execFile(process.execPath, [new URL('./check.js', import.meta.url).pathname, BUS, '--roster'],
+      { env: { ...process.env } },
+      (err, stdout) => (err ? reject(err) : resolve(stdout)))
+  })
+
+  assert.match(out, /legacy-speller@ant\s+wakes on \[plan\.ready\]\s+emits \[plan\.done\]/)
+  assert.doesNotMatch(out, /has-left@ant/)
 })

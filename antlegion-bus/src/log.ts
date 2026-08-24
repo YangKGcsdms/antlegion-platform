@@ -34,6 +34,15 @@ export class LogCorrupt extends Error {
   }
 }
 
+/**
+ * The log's own parameters, stored beside the journal. §8.4 makes Δ a property
+ * of the log; this is where the log keeps it.
+ */
+export interface LogMeta {
+  protocol: string;
+  claim_timeout: number;
+}
+
 export interface RecoveryReport {
   facts: Fact[];
   /** Byte offset the torn tail was truncated at, if any (§7.1). */
@@ -44,6 +53,7 @@ export interface RecoveryReport {
 
 export class JsonlLog {
   readonly path: string;
+  readonly metaPath: string;
   readonly dataDir: string;
   readonly fsyncPolicy: FsyncPolicy;
   private fd: number | null = null;
@@ -54,6 +64,7 @@ export class JsonlLog {
     mkdirSync(dataDir, { recursive: true });
     this.dataDir = dataDir;
     this.path = join(dataDir, "facts-v2.jsonl");
+    this.metaPath = join(dataDir, "log-meta.json");
     this.fsyncPolicy = fsyncPolicy;
     if (fsyncPolicy === "everysec") {
       this.timer = setInterval(() => this.flush(), 1000);
@@ -134,6 +145,41 @@ export class JsonlLog {
     }
 
     return { facts, truncatedAt, repairedTail };
+  }
+
+  /**
+   * The log's own parameters (§8.4, §B). Δ is specified as "a property of the
+   * log, not of the reader", and every §8.4 fold is a function of (prefix, Δ) —
+   * so a Δ that lives only in the bus process's environment makes that sentence
+   * false the moment the process restarts with a different one. Every claim
+   * ever made on the log is then re-interpreted, and `resolved`, which §9.3
+   * proves absorbing, can fold back to `open`.
+   *
+   * Writing it beside the journal makes the spec's wording literally true: Δ
+   * travels with the log, survives a restart, and can be copied to a replica.
+   */
+  readMeta(): LogMeta | null {
+    if (!existsSync(this.metaPath)) return null;
+    try {
+      const raw = JSON.parse(readFileSync(this.metaPath, "utf-8")) as Partial<LogMeta>;
+      const delta = raw.claim_timeout;
+      if (typeof delta !== "number" || !Number.isFinite(delta) || delta <= 0) return null;
+      return { protocol: String(raw.protocol ?? "3.0"), claim_timeout: delta };
+    } catch {
+      // An unreadable meta file must not brick the bus; it is re-pinned below.
+      return null;
+    }
+  }
+
+  /** Persist the log's parameters durably: temp → fsync → rename → fsync dir. */
+  writeMeta(meta: LogMeta): void {
+    const tmp = this.metaPath + ".tmp";
+    writeFileSync(tmp, JSON.stringify(meta) + "\n", "utf-8");
+    const fd = openSync(tmp, "r+");
+    try { fsyncSync(fd); } finally { closeSync(fd); }
+    renameSync(tmp, this.metaPath);
+    const dirFd = openSync(this.dataDir, "r");
+    try { fsyncSync(dirFd); } catch { /* not fsyncable on every platform */ } finally { closeSync(dirFd); }
   }
 
   /**

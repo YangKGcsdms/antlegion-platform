@@ -41,13 +41,23 @@ docs → https://antlegion.dev`);
 
 const cfg = loadConfig();
 
-const { app, bus } = createServerV2({
-  dataDir: cfg.dataDir, fsync: cfg.fsync, secret: cfg.secret,
-  maxDepth: cfg.maxDepth, claimTimeout: cfg.claimTimeout,
-});
+// Startup failures that are an operator's problem, not a bug, get one clear
+// line: a \u0394 that disagrees with the log (\u00a78.4) and interior log corruption
+// (\u00a711.1) both mean "do not serve this journal", and a stack trace buries why.
+let app, bus;
+try {
+  ({ app, bus } = createServerV2({
+    dataDir: cfg.dataDir, fsync: cfg.fsync, secret: cfg.secret,
+    maxDepth: cfg.maxDepth, claimTimeout: cfg.claimTimeout,
+  }));
+} catch (err) {
+  console.error(`error: ${err instanceof Error ? err.message : String(err)}`);
+  process.exit(1);
+}
 
 const server = serve({ fetch: app.fetch, port: cfg.port, hostname: cfg.host }, (info) => {
-  console.log(`[antlegion-v2] append-only fact bus on http://${cfg.host}:${info.port} (fsync=${cfg.fsync}, \u0394=${cfg.claimTimeout}s)`);
+  // \u0394 comes from the log, not from cfg \u2014 an existing journal overrides the env.
+  console.log(`[antlegion-v2] append-only fact bus on http://${cfg.host}:${info.port} (fsync=${cfg.fsync}, \u0394=${bus.claimTimeout}s)`);
   console.log(`[antlegion-v2] dashboard → http://${cfg.host}:${info.port}/dashboard · console → http://${cfg.host}:${info.port}/console`);
   if (cfg.host !== "127.0.0.1" && cfg.host !== "localhost") {
     console.log(`[antlegion-v2] listening beyond loopback (HOST=${cfg.host}) — the bus trusts its callers; keep it inside your trust boundary`);

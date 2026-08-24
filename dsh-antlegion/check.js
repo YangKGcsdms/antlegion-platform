@@ -12,6 +12,7 @@
  *   node check.js "$BUS" && dsh --profile dcu
  */
 
+import { colony } from '@antlegion/bus/fold'
 import { probeBus, renderProbe } from './preflight.js'
 
 const args = process.argv.slice(2)
@@ -34,18 +35,23 @@ if (verdict.secretStable === false) {
 }
 
 if (wantRoster) {
-  const facts = await fetch(`${verdict.url}/facts?type=sys.registry&since=0`).then((r) => r.json())
-  const latest = new Map()
-  for (const fact of facts) {
-    const previous = latest.get(fact.author)
-    if (previous === undefined || fact.seq > previous.seq) latest.set(fact.author, fact)
-  }
+  // The §8.5 roster is a fold, so fold it — do not re-derive it here. A
+  // hand-rolled latest-per-author scan reading only `payload.interests` was
+  // wrong twice over: it showed every peer that spells its declaration
+  // `listens`/`produces` (ant's DCUs do) as "wakes on [—] emits [—]", and it
+  // kept listing agents whose latest registration is retracted, which is how
+  // an agent leaves. Both are exactly what you are looking at this for.
+  //
+  // `colony()` needs the whole stream, not just sys.registry: retraction is a
+  // `_.tombstone` elsewhere in the log.
+  const facts = await fetch(`${verdict.url}/facts?since=0&limit=10000`).then((r) => r.json())
+  const roster = colony(facts)
   console.log('')
-  console.log(latest.size === 0 ? 'colony roster: empty — no agent has announced itself yet.' : 'colony roster:')
-  for (const fact of [...latest.values()].sort((a, b) => a.author.localeCompare(b.author))) {
-    const interests = (fact.payload?.interests ?? []).join(', ') || '—'
-    const publishes = (fact.payload?.publishes ?? []).join(', ') || '—'
-    console.log(`  ${fact.author}  wakes on [${interests}]  emits [${publishes}]`)
+  console.log(roster.length === 0 ? 'colony roster: empty — no agent has announced itself yet.' : 'colony roster:')
+  for (const agent of roster) {
+    const interests = agent.interests.join(', ') || '—'
+    const publishes = agent.publishes.join(', ') || '—'
+    console.log(`  ${agent.author}  wakes on [${interests}]  emits [${publishes}]`)
   }
 }
 

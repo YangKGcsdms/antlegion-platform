@@ -34,6 +34,11 @@
  * one ClientV2 fold call, so every reader — this CLI, the SDK, a DCU on another
  * machine — folds the same stream into the same world. See docs/AGENT-CLI.md.
  *
+ * `--bus <url>` picks the log (default `ANTLEGION_BUS_URL`, else
+ * http://localhost:28090). An unrecognised flag is rejected rather than
+ * ignored: these flags choose the log and the identity, so dropping one writes
+ * a correct fact into the wrong world and prints success.
+ *
  * `--author` is the global identity flag: it sets who you are for every command
  * that writes facts (on `read`/`tail`, which append nothing, it stays an author
  * filter). Identity defaults to ANTLEGION_AUTHOR, then `<user>@<hostname>`.
@@ -45,6 +50,14 @@ import { CONTEXT_REQUESTED, CONTEXT_PROVIDED, isGap } from "./fold.js";
 import type { Fact } from "./types.js";
 
 type Writer = (line: string) => void;
+
+/**
+ * Every flag any command accepts. `bus` is consumed by `bin.ts` before this
+ * runs (it picks the transport) and is listed so it is not reported unknown.
+ */
+const KNOWN_FLAGS = new Set([
+  "all", "author", "bus", "follow", "limit", "parent", "ref", "since", "subject", "type",
+]);
 
 /** Minimal flag parser: returns { positionals, flags }. */
 function parseArgs(argv: string[]): { positionals: string[]; flags: Record<string, string> } {
@@ -90,6 +103,8 @@ const USAGE = [
   "  provide-context <req-id> [json]  answer a context request         [--author a]",
   "  context-gaps [--all]    open (unanswered) context requests",
   "  info                    bus summary (INFO)",
+  "",
+  "any command: --bus <url> picks the log (env ANTLEGION_BUS_URL, default http://localhost:28090)",
 ].join("\n");
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -102,6 +117,17 @@ export async function runCli(
 ): Promise<number> {
   const { positionals, flags } = parseArgs(argv);
   const [cmd, ...rest] = positionals;
+
+  // An unknown flag is an error, not something to drop. This CLI's flags decide
+  // WHICH log a fact lands in and WHO it is from, so silently ignoring one the
+  // parser does not recognise writes the right fact to the wrong world and
+  // reports success — the worst shape a mistake can take here.
+  const unknown = Object.keys(flags).filter((k) => !KNOWN_FLAGS.has(k));
+  if (unknown.length > 0) {
+    writeErr(`error: unknown flag${unknown.length > 1 ? "s" : ""}: ${unknown.map((k) => "--" + k).join(", ")}`);
+    writeErr(`known flags: ${[...KNOWN_FLAGS].map((k) => "--" + k).sort().join(" ")}`);
+    return 1;
+  }
 
   // --author is the global identity flag for every command that writes facts.
   // read/tail append nothing, so there it remains an author filter.

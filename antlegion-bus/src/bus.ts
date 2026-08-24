@@ -21,6 +21,27 @@ import { globMatch } from "./canonical.js";
 /** §8 default claim timeout Δ, in seconds. A property of the log, not the reader. */
 export const DEFAULT_CLAIM_TIMEOUT = 600;
 
+/**
+ * Refusing to serve an existing log under a Δ it was not written with (§8.4).
+ *
+ * Every §8.4 fold is a function of (prefix, Δ). Serving the same journal under
+ * a different Δ therefore re-interprets every claim ever made on it, and can
+ * turn a `resolved` — which §9.3 proves absorbing over prefixes — back into
+ * `open`. That is a silent history rewrite, so it fails loudly instead.
+ */
+export class ClaimTimeoutConflict extends Error {
+  constructor(readonly pinned: number, readonly requested: number, readonly metaPath: string) {
+    super(
+      `Δ conflict: this log was created with a claim timeout of ${pinned}s, but the bus was ` +
+      `started with ${requested}s. Δ is a property of the log (§8.4) — serving the same journal ` +
+      `under a different Δ re-folds every claim on it and can un-resolve finished work. ` +
+      `Start with ANTLEGION_CLAIM_TIMEOUT=${pinned} (or unset it), use a different ` +
+      `ANTLEGION_DATA_DIR for a log with a different Δ, or edit ${metaPath} deliberately.`,
+    );
+    this.name = "ClaimTimeoutConflict";
+  }
+}
+
 export interface ReadQuery {
   since?: number;
   limit?: number;
@@ -55,10 +76,33 @@ export class BusV2 {
     this.secretStable = providedSecret != null;
     this.secret = providedSecret ?? randomBytes(32).toString("hex");
     this.maxDepth = opts?.maxDepth ?? 64;
-    this.claimTimeout = opts?.claimTimeout ?? DEFAULT_CLAIM_TIMEOUT;
     this.limits = { ...DEFAULT_LIMITS, ...opts?.limits };
     this.log = new JsonlLog(opts?.dataDir, opts?.fsync ?? "always");
+    this.claimTimeout = this.pinClaimTimeout(opts?.claimTimeout);
     this.recover();
+  }
+
+  /**
+   * Resolve Δ against the log rather than against the environment (§8.4).
+   *
+   * - A log that already records a Δ hands it back. Passing a different one is
+   *   a {@link ClaimTimeoutConflict}: it would silently re-fold every claim
+   *   the log has ever carried.
+   * - A log that records none — a fresh data dir, or one written by a bus from
+   *   before Δ was pinned — adopts the requested value (or §B's default) and
+   *   records it, so the next start is bound by it.
+   */
+  private pinClaimTimeout(requested?: number): number {
+    const meta = this.log.readMeta();
+    if (meta) {
+      if (requested !== undefined && requested !== meta.claim_timeout) {
+        throw new ClaimTimeoutConflict(meta.claim_timeout, requested, this.log.metaPath);
+      }
+      return meta.claim_timeout;
+    }
+    const delta = requested ?? DEFAULT_CLAIM_TIMEOUT;
+    this.log.writeMeta({ protocol: "3.0", claim_timeout: delta });
+    return delta;
   }
 
   /**

@@ -152,12 +152,34 @@ export function apply(ctx, config) {
 
     // Start the session first: the patrol may select work on its very first
     // tick, and `enqueue` before the agent exists only parks it.
-    const started = resident.start().then(
-      () => { patrol.start() },
-      (error) => { log(`resident session failed to start: ${error instanceof Error ? error.message : String(error)}`) },
-    )
+    //
+    // Keep retrying if it will not start. A DCU is a background daemon nobody
+    // is watching, and the reasons this fails — a model not configured yet, a
+    // provider refusing at exactly the wrong second — are the transient kind.
+    // One rejected promise used to end the DCU's life without ending its
+    // process: the patrol never started, so it never polled, never registered,
+    // and never appeared on the roster. From outside it was indistinguishable
+    // from a bus that could not be reached, which is what the guide tells you
+    // to go and check.
+    let stopped = false
+    const started = (async () => {
+      for (let attempt = 1; !stopped; attempt++) {
+        try {
+          await resident.start()
+          if (!stopped) patrol.start()
+          return
+        } catch (error) {
+          const why = error instanceof Error ? error.message : String(error)
+          const waitMs = Math.min(30_000, 1_000 * 2 ** Math.min(attempt - 1, 5))
+          log(`resident session failed to start (attempt ${attempt}): ${why} — the patrol stays down ` +
+              `until it is up, so this DCU is claiming nothing; retrying in ${Math.round(waitMs / 1000)}s`)
+          await new Promise((resolve) => setTimeout(resolve, waitMs))
+        }
+      }
+    })()
 
     return async () => {
+      stopped = true          // ends the retry loop rather than waiting it out
       disposeTools()
       await started.catch(() => {})
       await patrol.stop()
