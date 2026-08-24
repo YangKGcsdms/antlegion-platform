@@ -11,7 +11,7 @@
 [![npm](https://img.shields.io/npm/v/%40antlegion%2Fbus?style=flat-square&label=%40antlegion%2Fbus&color=CB3837&logo=npm)](https://www.npmjs.com/package/@antlegion/bus)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?style=flat-square&logo=typescript&logoColor=white)](antlegion-bus/tsconfig.json)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A518-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org)
-[![Tests](https://img.shields.io/badge/tests-387%20passing-brightgreen?style=flat-square)](antlegion-bus/test/)
+[![Tests](https://img.shields.io/badge/tests-395%20passing-brightgreen?style=flat-square)](antlegion-bus/test/)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 [![Status](https://img.shields.io/badge/status-alpha-orange?style=flat-square)]()
 
@@ -214,7 +214,7 @@ cd ../ant && npm install --no-save /tmp/antlegion-bus-0.5.0.tgz
 
 `research/protocol-v3-audit-2026-08.md` 完整论证了这三条，以及它们之后还剩下什么。
 
-已完成：无状态可信核心 · 带 `appendfsync`、撕裂尾恢复与「不改变折叠结果」压缩的只追加日志 · 读者折叠 SDK（寄存器、踪迹、信任、所有权）含 §10.1 授权门控 · `alctl` CLI · 跨语言合规向量，其独立 Python 校验器检查的是**折叠而不只是哈希**（204 条断言）· 共享视图 + 所有权场景 · Docker 镜像 · 进程内约 160k 追加/秒 · Δ 被钉进日志，重启不再能悄悄重折它的历史 · 三个包共 387 个测试（bus 263 · ant 119 · dsh 5）· npm 包 · 常驻 Agent（`ant init` / `ant start`、`@antlegion/dsh`）。
+已完成：无状态可信核心 · 带 `appendfsync`、撕裂尾恢复与「不改变折叠结果」压缩的只追加日志 · 读者折叠 SDK（寄存器、踪迹、信任、所有权）含 §10.1 授权门控 · `alctl` CLI · 跨语言合规向量，其独立 Python 校验器检查的是**折叠而不只是哈希**（204 条断言）· 共享视图 + 所有权场景 · Docker 镜像 · 进程内约 160k 追加/秒 · Δ 被钉进日志，重启不再能悄悄重折它的历史 · 三个包共 395 个测试（bus 263 · ant 119 · dsh 13）· npm 包 · 常驻 Agent（`ant init` / `ant start`、`@antlegion/dsh`）。
 
 下一步：多语言客户端 SDK（Go、Python、Rust——[合规向量](antlegion-bus/conformance/vectors.json)是测试目标）· 面向暴露部署的鉴权与限流（[§10.3](PROTOCOL.md)）· 复制/高可用（[§11.3](PROTOCOL.md)）· 给 `sig` 的字段加长度前缀（[§5.10](PROTOCOL.md)）。
 

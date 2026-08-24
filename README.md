@@ -11,7 +11,7 @@
 [![npm](https://img.shields.io/npm/v/%40antlegion%2Fbus?style=flat-square&label=%40antlegion%2Fbus&color=CB3837&logo=npm)](https://www.npmjs.com/package/@antlegion/bus)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?style=flat-square&logo=typescript&logoColor=white)](antlegion-bus/tsconfig.json)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A518-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org)
-[![Tests](https://img.shields.io/badge/tests-387%20passing-brightgreen?style=flat-square)](antlegion-bus/test/)
+[![Tests](https://img.shields.io/badge/tests-395%20passing-brightgreen?style=flat-square)](antlegion-bus/test/)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 [![Status](https://img.shields.io/badge/status-alpha-orange?style=flat-square)]()
 
@@ -174,7 +174,8 @@ AntLegion/
 ├── ant/                    ← @antlegion/ant — resident agents that live on a log (mirror → fold → act);
 │                             ships a dev-chain as a *workflow client example*, not the product
 ├── antlegion-alias/        ← antlegion — 20-line alias so `npx antlegion` boots the bus
-├── dsh-antlegion/          ← @antlegion/dsh — DeepSeek Harness as a resident agent on the log
+├── dsh-antlegion/          ← @antlegion/dsh — DeepSeek Harness as a resident agent on the log;
+│                             one conversation per topic, woken by facts, publishing back
 │
 │   ── everything else ──
 ├── docs/                   ← QUICKSTART · AGENT-CLI · ARCHITECTURE · CONFIGURATION ·
@@ -214,7 +215,7 @@ Three limits worth knowing before you build on it, all of them consequences of t
 
 `research/protocol-v3-audit-2026-08.md` argues all three, and what survives them.
 
-Done: stateless trusted core · append-only journal with `appendfsync`, torn-tail recovery and fold-preserving compaction · reader-fold SDK (registers, trails, trust, ownership) with the §10.1 authorization gates · `alctl` CLI · cross-language conformance vectors whose independent Python verifier checks **folds, not just hashes** (204 assertions) · shared-view + ownership scenarios · Docker image · ~160k appends/s in-process · Δ pinned to the log, so a restart cannot silently re-fold its history · 387 tests across the three packages (263 bus · 119 ant · 5 dsh) · npm packages · resident agents (`ant init` / `ant start`, `@antlegion/dsh`).
+Done: stateless trusted core · append-only journal with `appendfsync`, torn-tail recovery and fold-preserving compaction · reader-fold SDK (registers, trails, trust, ownership) with the §10.1 authorization gates · `alctl` CLI · cross-language conformance vectors whose independent Python verifier checks **folds, not just hashes** (204 assertions) · shared-view + ownership scenarios · Docker image · ~160k appends/s in-process · Δ pinned to the log, so a restart cannot silently re-fold its history · 395 tests across the three packages (263 bus · 119 ant · 13 dsh) · npm packages · resident agents (`ant init` / `ant start`, `@antlegion/dsh`).
 
 Next: multi-language client SDKs (Go, Python, Rust — the [conformance vectors](antlegion-bus/conformance/vectors.json) are the test target) · auth + rate limiting for exposed deployments ([§10.3](PROTOCOL.md)) · replication/HA ([§11.3](PROTOCOL.md)) · length-prefixed `sig` fields ([§5.10](PROTOCOL.md)).
 
