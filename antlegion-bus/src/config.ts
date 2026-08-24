@@ -25,7 +25,7 @@ export interface V2Config {
   fsync: FsyncPolicy;
   secret?: string;
   maxDepth: number;
-  claimTimeout: number;
+  claimTimeout?: number;
 }
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): V2Config {
@@ -40,6 +40,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     fsync,
     secret: env.ANTLEGION_BUS_SECRET,
     maxDepth: Number.isInteger(d) && d > 0 ? d : 64,
-    claimTimeout: Number.isFinite(delta) && delta > 0 ? delta : 600,
+    claimTimeout: Number.isFinite(delta) && delta > 0 ? delta : undefined,
   };
 }

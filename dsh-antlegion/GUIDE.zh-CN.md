@@ -124,19 +124,43 @@ publishes:
 
 ## 5. 装上去
 
-已发布：
-
 ```bash
-dsh plugin --profile dcu add @antlegion/dsh
+./setup-dcu-profile.sh          # 建出 dcu profile，指向 127.0.0.1:28090
+dsh --profile dcu
 ```
 
-本仓库直接用（不需要发包）——链进 profile 的 `node_modules`：
+然后打开 **http://127.0.0.1:28092** —— DCU 自带一个配置页。填总线地址，点 **Check**，
+点 **Save**。运行中的进程直接接上，不用重启，也不用先去找 YAML 文件在哪。
 
-```bash
-ln -sfn "$PWD" ~/.dsh/profiles/node_modules/@antlegion/dsh
-```
+![配置页：总线地址、身份、唤醒 glob，以及当前生效的是什么](../deploy/media/dsh-setup-ui.png)
 
-然后在 `~/.dsh/profiles/dcu/package.json` 里把它列进 bundles：
+地址是这个插件唯一猜不出来的东西，而在它填对之前 DCU 什么也做不了 —— 所以只有这一件事
+配了界面。**Check** 跑的就是 `check.js` 那个探测，地址不对会回来一个分类
+（`refused` / `dns` / `timeout` / `not-a-bus`），而不是一个转圈。**Save** 写进
+`~/.antlegion/dsh-dcu.json`（这个插件自己的文件，只放页面能改的那四个字段），然后**换掉
+整个运行时**：客户端、绑在它上面的工具、巡检、会话全部按新地址重建，不会有任何东西还指着
+旧日志。
+
+页面里存的值**盖过** profile 的 `cordis.patch.yml`，而页面和启动日志都会说清楚每一项来自
+哪边 —— 悄悄盖掉别人手写的配置文件，和一个重启就变的 Δ 是同一类意外。删掉那个文件就回到
+profile。`setupUi: false` 关掉这个页面；它只绑回环，绑得更宽是一句告警而不是一扇门，
+因为它能改变这个 agent 往哪条日志上发事实。
+
+一条命令，因为手工那两行今天走不通。三个坑各有各的失败方式，值得知道：
+
+| 做法 | 为什么失败 | 脚本怎么处理 |
+|---|---|---|
+| `dsh plugin add @antlegion/dsh` | `@antlegion/dsh` 和它依赖的 `@antlegion/bus` 0.5.0 都没发布 | 从本仓库 build + pack 总线，两个一起装进 profile |
+| `add @deepseek-ai/dsh-base` | `latest` 标签指向 0.0.1-rc.1，它自己的依赖 404 | 每次安装都钉 `$DSH_LINE`（默认 `0.1.1-rc.2`） |
+| 完整 `npm install` 装 launcher | `@deepseek-ai` 预发布图的 peer 解析跑不完 | `--legacy-peer-deps`，再把运行时需要的 peer 逐个点名 |
+
+**为什么是拷进去而不是软链。** Node 按模块的**真实路径**解析它的 import，所以软链过去的
+checkout 会在 checkout 里找 `schemastery`、`dsh-tools`、`dsh-llm` —— 拿到的是宿主已经在跑
+的那些服务的另一份副本，config 校验会落在错误的那个 `schemastery` 上。装到已发布版本本来
+就会去的位置，整类问题就不存在。真要用软链快速迭代，checkout 里就得自备每一个 peer，而你
+是在明知有重复实例的前提下这么做。
+
+profile 的 `package.json` 长这样（脚本会写好）：
 
 ```json
 {
@@ -169,6 +193,18 @@ ln -sfn "$PWD" ~/.dsh/profiles/node_modules/@antlegion/dsh
 dsh --profile dcu --dump-config
 ```
 
+不用模型 key 就把整条链路走完并断言结果：
+
+```bash
+./verify-loop.sh                 # 起、驱动、断言整条闭环
+VIA_SETUP_UI=1 ./verify-loop.sh  # ……而且从一个「指着空地址」的 DCU 开始，用配置页救回来
+```
+
+它起一条总线、起 DCU，让**另一个作者**丢一条 `task.request` 进来，然后检查流应该长成的
+样子：`sys.registry → task.request → _.claim → _.resolve → task.done`（最后一条以
+`refs.parent` 挂在 `task.request` 下）。`stub-model.mjs` 只顶替「拿主意」那一步，别的都是
+真插件对真总线 —— 协调那一半才是值得证明的。
+
 ---
 
 ## 6. 启动，读那四行
@@ -177,11 +213,12 @@ dsh --profile dcu --dump-config
 dsh --profile dcu
 ```
 
-正常启动长这样，四行各是一个检查点：
+正常启动长这样，每行都是一个检查点：
 
 ```
 [antlegion-dcu] … bus OK — http://127.0.0.1:28099 protocol 3.0, head seq 0, 0 facts, Δ 600s, up 8s (18ms)
-[antlegion-dcu] … resident session session-antlegion-dcu-624a7110-… up on deepseek-official/deepseek-v4-pro
+[antlegion-dcu] … auto-compaction: on — the host compacts this session under context pressure
+[antlegion-dcu] … opened session session-antlegion-dcu-7c90e967… for topic ~ on deepseek-official/deepseek-v4-pro
 [antlegion-dcu] … patrol starting — bus http://127.0.0.1:28099, author dsh-dcu, poll 1000ms
 [antlegion-dcu] … registered — interests [task.*], publishes [task.done], ttl 300s
 ```
@@ -189,12 +226,16 @@ dsh --profile dcu
 | 这行 | 说明 |
 |---|---|
 | `bus OK` | 地址对、总线活着 |
-| `resident session … up on <provider>/<model>` | 常驻会话建起来了，模型也选好了 |
+| `opened session … for topic ~ on <provider>/<model>` | 常驻会话建起来了，模型也选好了（接上已有历史时是 `resumed session`） |
 | `patrol starting` | 巡检循环开跑 |
 | `registered — interests […]` | 已经在 colony roster 上，别人能看见你听什么 |
 
-**缺哪行说明什么**：没有第 2 行 → 模型没配好（看 `~/.dsh/settings.yaml`）；
-没有第 4 行 → 总线不通（第 1 行会先告诉你）。
+启动时还会多一行说压缩挂没挂上（`auto-compaction: on`），见第 12 节。
+
+**缺哪行说明什么**：没有 `opened session` → 模型没配好（看 `~/.dsh/settings.yaml`）。
+这一条不会静默失败：插件会退避重试并每次说明原因，而在会话起来之前 patrol 不启动 ——
+一个还不能干活的 DCU 不该去认领任何东西。没有 `registered` → 总线不通（`bus OK` 那行
+会先告诉你）。
 
 总线没起也可以先起 DCU——它会退避重连，等总线出现自己接上：
 
@@ -320,5 +361,51 @@ refs:    { subject: "liveness:<author>" }
 | `heartbeatSec` | `0` | 旧的固定频率心跳；除非有专门折叠心跳的读端，否则别开 |
 | `claimTimeoutSec` | `0` | **兜底** Δ，仅在总线没有发布 Δ 时生效。v3.0 起 Δ 属于日志（§8.4），巡逻从 `/info` 读；`0` 用 §B 默认 600s |
 | `maxFactsPerTurn` | `5` | 一轮最多简报几条，其余排队 |
-| `sessionId` | `''` | 固定会话 id；空则每次启动新建 |
+| `setupUi` | `true` | 起不起配置页 |
+| `setupUiHost` | `127.0.0.1` | 配置页绑哪个接口；比回环更宽会告警 |
+| `setupUiPort` | `28092` | 28090 是总线，28091 是 ant 的看板 |
+| `settingsPath` | `''` | 配置页存哪；空则用 `~/.antlegion/dsh-dcu.json` |
+| `sessionScope` | `subject` | 哪些事实共用一段对话，见第 12 节。`subject` \| `root` \| `fact` \| `none` |
+| `maxLiveSessions` | `3` | 同时活着的会话数上限，超出把最久未用的 flush 掉并释放 |
+| `resumeSessions` | `true` | 主题回来时接上它自己持久化的那段对话，而不是从空白开始 |
+| `sessionId` | `''` | 固定成一个会话处理所有事实；等同于 `sessionScope: none` |
 | `cwd` | `''` | 常驻会话的工作目录；空则用进程 cwd |
+
+---
+
+## 12. 一个主题一个会话
+
+跑上几周的 DCU 会遇到彼此无关的事实。全塞进一段对话错两次：模型在处理部署事故时，招聘
+那条线还挂在视野里；上下文窗口被再也不会相关的材料填满，于是压缩扔掉的正是本该留下的部分。
+
+**「相关」不去问模型。** 那要花一个 turn、结果不确定，而且会让两个读同一条日志的 DCU
+对自己的历史产生分歧。日志本来就回答了这件事：`refs.subject` 命名世界的一块（§5.4），
+一条因果链是一件事（§8.2）。`topics.js` 把主题从流里折出来 —— 和这里所有别的东西一样，
+是折出来的，不是猜出来的。
+
+| `sessionScope` | 一条事实的主题是…… |
+|---|---|
+| `subject`（默认） | 它的 `refs.subject`；没有就取因果根；再没有就**共用** —— 所以只在流自己说两件事无关时才分，一条既不设 subject 也没有父的流，行为和加主题之前完全一样 |
+| `root` | 它的因果根，于是一条没有父的事实自己开一段 |
+| `fact` | 它自己 —— 一条事实一段会话 |
+| `none` | 整个进程一段对话 |
+
+会话 id 由 **(author, 主题) 派生，不是随机的**，所以世界的同一块在重启之后还是同一段
+对话：`resumeSessions` 打开时，上周安静下去的主题回来时接上自己的历史而不是一张白纸。
+`maxLiveSessions` 给这件事定价 —— 超出上限就把最久未用的那段 flush 掉并释放，主题再回来
+时从持久化里重开。每段会话开在自己的 cordis fiber 里，因为 `agents.create` 把 agent 的
+生命周期交给**调用方的** context：从插件自己的 context 建，想释放一段会话就只能卸载整个
+插件。
+
+### 上下文用完了怎么办
+
+上下文是常驻 agent 会耗尽的资源，而且耗尽得很安静 —— 越过天花板之后每一轮都失败，而
+DCU 还在继续认领它已经做不了的活。这件事由 harness 处理，插件不重复实现：
+`@deepseek-ai/dsh-compaction-basic` 在 `agent/pre-step` 上按 80% 请求压力压缩（保留一段
+逐字尾巴），溢出报错时再压一次。所以插件唯一该说的是它到底挂上没有，启动时打出来：
+
+```
+[antlegion-dcu] … auto-compaction: on — the host compacts this session under context pressure
+```
+
+profile 里没有它，得到的是一句告警，而不是三周后的一个意外。

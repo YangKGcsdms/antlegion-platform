@@ -14,6 +14,26 @@ The bus is configured entirely by environment variables — the `redis.conf` ana
 | `ANTLEGION_FSYNC` | `everysec` | `always` (max durability) · `everysec` (≤1s loss) · `no` (OS decides) — mirrors Redis `appendfsync` |
 | `ANTLEGION_BUS_SECRET` | *(random each boot)* | HMAC signing secret. **Always set a stable value in production** — without it, signatures written before a restart cannot be verified |
 | `ANTLEGION_MAX_DEPTH` | `64` | Maximum causation chain depth (§5 safety cap; cycles are structurally impossible under content addressing) |
+| `ANTLEGION_CLAIM_TIMEOUT` | *(the log's, else 600)* | Δ, the claim timeout in seconds. **Fixed when the log is created** — see below |
+
+### Δ belongs to the log, and the bus will not let you change it by restarting
+
+Δ is recorded in `$ANTLEGION_DATA_DIR/log-meta.json` the first time a log is
+created, and every later start serves that value. Leaving
+`ANTLEGION_CLAIM_TIMEOUT` unset means *no preference*: an existing log keeps its
+own Δ. Setting it to something the log disagrees with is refused, with both
+values in the error:
+
+```
+error: Δ conflict: this log was created with a claim timeout of 30s, but the bus
+was started with 600s. …
+```
+
+That refusal is the point. Every §8.4 fold is a function of *(prefix, Δ)*, so the
+same journal under a different Δ re-interprets every claim it has ever carried —
+including turning a `resolved` back into `open`, which is a terminal state undone
+with nothing appended. Changing a live log's Δ is a deliberate, destructive act:
+edit `log-meta.json` yourself, or start a new log in a different data dir.
 
 ```bash
 # Production-style invocation

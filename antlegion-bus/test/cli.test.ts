@@ -185,3 +185,35 @@ describe("alctl — the redis-cli analog", () => {
     expect(b.role).toBeUndefined();
   });
 });
+
+describe("alctl — a flag that does not exist is an error, never a shrug", () => {
+  // The flags here choose the log (--bus) and the identity (--author). A parser
+  // that drops the ones it does not know writes a correct fact into the wrong
+  // world and exits 0, which is the one failure shape nobody checks for.
+  it("rejects an unknown flag and lists the real ones", async () => {
+    const { errs, run } = harness();
+    expect(await run(["read", "--sinc", "0"])).toBe(1);
+    expect(errs.join("\n")).toContain("unknown flag: --sinc");
+    expect(errs.join("\n")).toContain("--since");
+  });
+
+  it("names every unknown flag, not just the first", async () => {
+    const { errs, run } = harness();
+    expect(await run(["publish", "t", "--nope", "1", "--alsonope"])).toBe(1);
+    expect(errs.join("\n")).toContain("--nope");
+    expect(errs.join("\n")).toContain("--alsonope");
+  });
+
+  it("appends nothing when a flag is rejected", async () => {
+    const { bus, errs, run } = harness();
+    expect(await run(["publish", "demo.hello", "{}", "--buss", "http://elsewhere"])).toBe(1);
+    expect(errs.join("\n")).toContain("--buss");
+    expect(bus.headSeq()).toBe(0);
+  });
+
+  it("accepts --bus, which bin.ts consumes before runCli sees it", async () => {
+    // runCli must not report it unknown; the transport was already chosen.
+    const { run } = harness();
+    expect(await run(["publish", "demo.hello", "{}", "--bus", "http://localhost:28090"])).toBe(0);
+  });
+});

@@ -14,6 +14,23 @@
 | `ANTLEGION_FSYNC` | `everysec` | `always`（最高持久性）· `everysec`（最多丢 1 秒）· `no`（交给操作系统）——对应 Redis 的 `appendfsync` |
 | `ANTLEGION_BUS_SECRET` | *（每次启动随机）* | HMAC 签名密钥。**生产环境务必设一个稳定值**——否则重启前写入的签名将无法再被验证 |
 | `ANTLEGION_MAX_DEPTH` | `64` | 因果链最大深度（§5 安全上限；内容寻址让环从结构上不可能出现） |
+| `ANTLEGION_CLAIM_TIMEOUT` | *（日志里的值，否则 600）* | Δ，领取超时（秒）。**在日志创建时定死** —— 见下 |
+
+### Δ 属于日志，重启改不了它
+
+Δ 在日志第一次创建时被写进 `$ANTLEGION_DATA_DIR/log-meta.json`，此后每次启动都服务那个值。
+`ANTLEGION_CLAIM_TIMEOUT` 不设表示*没有偏好*：已存在的日志保留自己的 Δ。设成与日志不一致的值
+会被拒绝，两个值都写在错误里：
+
+```
+error: Δ conflict: this log was created with a claim timeout of 30s, but the bus
+was started with 600s. …
+```
+
+这次拒绝本身就是目的。§8.4 的每一次折叠都是 *(前缀, Δ)* 的函数，同一条 journal 换个 Δ 就把它
+承载过的每一次领取重新解释了一遍 —— 包括把 `resolved` 变回 `open`，也就是一个终态在没追加
+任何事实的情况下被撤销。改一条活日志的 Δ 是有意的破坏性操作：自己去改 `log-meta.json`，
+或者换一个数据目录开一条新日志。
 
 ```bash
 # 生产风格的启动方式

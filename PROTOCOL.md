@@ -1422,6 +1422,27 @@ per-reader knob with a documented default, and two readers folding one stream
 with different Δ disagreed not only about who held a claim but about whether the
 work was `resolved` at all.
 
+**Δ is fixed for the life of a log.** A bus MUST record Δ durably alongside the
+journal when the log is created, MUST serve an existing log with the recorded
+value, and MUST refuse to serve it under a different one (M12). Publishing Δ is
+not enough on its own: every §8.4 result is a function of *(prefix, Δ)*, so a
+bus that takes Δ from its environment on each start re-interprets every claim
+the log has ever carried the moment that environment changes. The damage is not
+limited to live claims. This prefix
+
+```
+seq 1  _.claim    author agent-a  recv 1000
+seq 2  _.resolve  author agent-a  recv 1900
+```
+
+folds to `resolved(agent-a)` under Δ = 3600 and to `open` under Δ = 60: at the
+resolve's own `recv` the claim has lapsed, so there is no winner to honour it.
+Nothing was appended, nothing was rewritten, and a terminal state came undone —
+the one outcome §9.3 exists to rule out. Recording Δ with the log is what makes
+"a property of the log" true of the bytes and not only of the prose, and it is
+what lets a journal be copied to a replica or restored from a backup without
+carrying its meaning in an operator's memory.
+
 ```
 ownership(F):                            # facts referencing F, ascending seq
   active ← []                            # live claims: {author, seq, recv}
@@ -1635,8 +1656,8 @@ stated: **if a conclusion can silently reverse, no agent can act on it.**
 The honest answer is that some results are stable and some are not, and the
 design depends on knowing exactly which.
 
-> **Theorem 3 (absorption).** If `ownership(F)` over P returns `resolved(a)` or
-> `dead`, then it returns the same value over every P′ ⊇ P.
+> **Theorem 3 (absorption).** At a fixed Δ, if `ownership(F)` over P returns
+> `resolved(a)` or `dead`, then it returns the same value over every P′ ⊇ P.
 
 **Proof.** Both values are produced by an immediate return inside the loop, on
 reading a specific fact x — a `resolves` from the current winner, or a
@@ -1644,7 +1665,15 @@ reading a specific fact x — a `resolves` from the current winner, or a
 (Theorem 1 step 1) and x still occupies the same `seq`, because a `seq` is never
 reused (§5.8). Every fact P′ adds beyond P has a higher `seq` than P's maximum,
 hence a higher `seq` than x. The loop therefore reaches x having read exactly the
-same preceding facts and returns before reading anything new. ∎
+same preceding facts, and — Δ being unchanged — computes the same `active` set
+at x, so it returns before reading anything new. ∎
+
+**The hypothesis is load-bearing.** Theorem 2 already states determinism as a
+function of *(P, Δ)*; absorption inherits that parameter through the `active`
+set the return branch consults. Vary Δ and a `resolved` can become `open`
+(§8.4). This is why §8.4 requires Δ to be recorded with the log and fixed for
+its life: absorption is what an agent acts on, and a parameter that can be
+changed out from under it is not a parameter — it is a fork.
 
 **What is monotone.** These grow but never retract as the prefix grows:
 
@@ -1803,9 +1832,19 @@ else is a reader concern.
 | M9 | Persist before responding `201`, per the durability policy (§11.1) | — |
 | M10 | Re-verify `id` and `sig` on recovery and report both counts (§11.1) | — |
 | M11 | Refuse to start on interior log corruption (§11.1) | — |
-| M12 | Accept unknown `refs` keys and MUST NOT interpret them | — |
-| M13 | Ignore and MUST NOT store unknown top-level fields (§5.3) | — |
-| M14 | Never mutate or delete a stored fact except by compaction under §11.2 | — |
+| M12 | Record Δ with the log at creation; refuse to serve a log under a different Δ (§8.4) | — |
+| M13 | Accept unknown `refs` keys and MUST NOT interpret them | — |
+| M14 | Ignore and MUST NOT store unknown top-level fields (§5.3) | — |
+| M15 | Never mutate or delete a stored fact except by compaction under §11.2 | — |
+
+**M12, precisely.** Δ is not a runtime setting; it is part of what the log
+*means* (§8.4). A bus reading it from its environment on each start silently
+re-folds the whole history the first time that environment differs — from a
+container image default, a restored backup, a second operator, a replica. The
+recorded value is authoritative: a bus started with no Δ adopts the log's, and
+one started with a conflicting Δ MUST refuse rather than choose. Changing a
+live log's Δ is a deliberate, destructive act, and it is the operator's to make
+explicitly — not something a restart does on their behalf.
 
 **M5, precisely.** Depth is computed by walking `refs.parent` through facts
 **present in the log at append time**, counting the new fact as depth 1 when its
@@ -1881,8 +1920,31 @@ what a `201` promises.
 - The bus MUST verify `sig` when the secret is stable, and MUST report failures
   separately from `id` failures. They mean different things: a `sig` failure is a
   tampered or foreign-secret **header**; an `id` failure is tampered **content**.
-- `seq` is restored as the **maximum** `seq` present. A bus MUST NOT reuse a
-  `seq`, ever, including after a truncation or a repair.
+- `seq` is restored as the **maximum** `seq` present, and the next append takes
+  the one after it.
+
+  > **What "never reuse a `seq`" can and cannot mean here.** For every fact the
+  > log still holds, the rule is absolute: a stored `seq` is never handed to
+  > other content (M6, M15). A `seq` that the truncation above removed is a
+  > different case, and the two policies interact:
+  >
+  > - Under `fsync`-per-append a torn record was never acknowledged — the crash
+  >   landed between the write and the `201` — so no client holds a receipt for
+  >   it and reissuing its number is invisible to everyone.
+  > - Under a relaxed policy a `201` can have been returned for content the
+  >   crash then tore away. Reissuing that number gives one `seq` to two pieces
+  >   of content in two different readers' views, which is precisely the fork
+  >   §9's proofs rule out.
+  >
+  > A bus MUST report the truncation (§7.5) so this is visible rather than
+  > inferred. A deployment that needs the absolute rule MUST use
+  > `fsync`-per-append; under a relaxed policy "a `201` may be revoked by a
+  > crash" extends to the `seq` it named, and that is part of what the relaxed
+  > policy buys.
+
+- Δ MUST be read from the log's own record (§8.4), not from the environment,
+  and a bus MUST refuse to serve a log whose recorded Δ differs from the one it
+  was started with (M12).
 
 There is no in-memory state machine to rebuild: the log *is* the state, and the
 derived indexes (the `seq` counter, the `id → seq` map) are pure projections.
@@ -2059,7 +2121,7 @@ means the rewrite changed semantics.
 
 | parameter | default | who sets it | note |
 |---|---|---|---|
-| **Δ — claim timeout** | 600 s | **the log** | §8.4. Published via `/info`; readers MUST use the published value and MUST NOT override it |
+| **Δ — claim timeout** | 600 s | **the log** | §8.4. Fixed at the log's creation and stored with it; published via `/info`; readers MUST use the published value and MUST NOT override it |
 | Trust quorum | 2 | the reader | §8.3. MUST be ≥ 1 |
 | Causation depth cap | 64 | the operator | §10.2 (M5). Bounds append-time work, not trail depth |
 | Read `limit` default / max | 100 / 10 000 | the operator | §7.3 |
@@ -2122,10 +2184,10 @@ would preserve the very defects §C.2 lists as breaking.
 ### C.3 Extension policy
 
 - A new `refs` key is **additive**: a bus MUST accept unknown keys and readers
-  MUST ignore keys they do not understand (M12). A new key that requires a fold
+  MUST ignore keys they do not understand (M13). A new key that requires a fold
   gate is **not** additive and needs a version.
 - A new fact `type` outside the reserved namespaces (§5.1) is always additive.
-- A new field is **not** additive: unknown top-level fields are not stored (M13).
+- A new field is **not** additive: unknown top-level fields are not stored (M14).
   Extensions go in `payload`.
 - Any change to the content address, to a §8 fold, or to a §10.1 gate is
   wire-breaking and requires a major version and a regenerated vector set (§A.2).

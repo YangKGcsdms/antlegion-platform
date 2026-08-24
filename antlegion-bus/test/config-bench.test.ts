@@ -7,7 +7,8 @@ describe("R4 — config (the redis.conf analog)", () => {
     const c = loadConfig({});
     expect(c).toEqual({
       port: 28090, host: "127.0.0.1", dataDir: ".data-v2", fsync: "everysec",
-      secret: undefined, maxDepth: 64, claimTimeout: 600,   // §B default Δ
+      // Δ undefined = no operator preference; the log's own value wins (§8.4).
+      secret: undefined, maxDepth: 64, claimTimeout: undefined,
     });
   });
 
@@ -31,14 +32,17 @@ describe("R4 — config (the redis.conf analog)", () => {
     expect(loadConfig({ ANTLEGION_FSYNC: "bogus" }).fsync).toBe("everysec");
   });
 
-  it("Δ is operator-settable, and a nonsense value falls back to the §B default", () => {
+  it("Δ is operator-settable, and an unset or nonsense value defers to the log", () => {
     // §8.4 makes Δ a property of the LOG. Without this knob "a property of the
     // log" was true in the spec and false at the command line: the only way to
     // run a log with another Δ was to edit the source.
     expect(loadConfig({ ANTLEGION_CLAIM_TIMEOUT: "12.5" }).claimTimeout).toBe(12.5);
+    // Undefined, not 600: an unset env is "no preference", so an existing log
+    // keeps its own Δ instead of being told it must be 600 (§8.4 pinning).
     for (const bad of ["0", "-5", "abc", ""]) {
-      expect(loadConfig({ ANTLEGION_CLAIM_TIMEOUT: bad }).claimTimeout).toBe(600);
+      expect(loadConfig({ ANTLEGION_CLAIM_TIMEOUT: bad }).claimTimeout).toBeUndefined();
     }
+    expect(loadConfig({}).claimTimeout).toBeUndefined();
   });
 
   it("an invalid max-depth falls back to 64", () => {
