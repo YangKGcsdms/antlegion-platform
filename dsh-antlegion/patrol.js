@@ -94,6 +94,9 @@ export function selectWork(batch, mirror, { author, interests, foldOpts }) {
  *   Turn it on only for a reader that folds heartbeats specifically (ant's
  *   identity-conflict watchdog); the TTL slot covers ordinary liveness.
  * @param options.claimTimeout - claim-expiry Δ in seconds for this DCU's folds.
+ * @param options.mode - `exclusive` (default) claims each in-scope fact IN CODE
+ *   before waking the session, and only the winner is handed on; `observe`
+ *   claims nothing, so every interested DCU sees the same fact.
  * @param options.log - diagnostic sink.
  * @param options.onWork - called with selected facts; MUST return promptly.
  * @returns the patrol handle.
@@ -110,6 +113,7 @@ export function createPatrol(options) {
     livenessTtlSec = 300,
     heartbeatSec = 0,
     claimTimeout,
+    mode = 'exclusive',
     log = () => {},
     onWork = () => {},
   } = options
@@ -212,11 +216,40 @@ export function createPatrol(options) {
     }
 
     if (batch.length === 0) return
-    const work = selectWork(batch, mirror, { author, interests, foldOpts })
-    if (work.length > 0) {
-      log(`${work.length} fact(s) in scope: ${work.map((f) => f.type).join(', ')}`)
-      onWork(work, { client, mirror })
+    const scope = selectWork(batch, mirror, { author, interests, foldOpts })
+    if (scope.length === 0) return
+    log(`${scope.length} fact(s) in scope: ${scope.map((f) => f.type).join(', ')}`)
+
+    // Ownership is a protocol operation, not a decision: the winner is the
+    // lowest-seq live claim (§3.1), so there is nothing here for a model to
+    // judge. Claiming in code — BEFORE the turn — is what makes this a DCU
+    // rather than a prompt that hopefully claims: a lost claim costs zero LLM
+    // turns, and the winner is settled in milliseconds by seq instead of by
+    // whichever model happened to finish thinking first.
+    const work = mode === 'exclusive' ? await claimAll(scope) : scope
+    if (work.length > 0) onWork(work, { client, mirror })
+  }
+
+  /**
+   * Take ownership of every in-scope fact and keep only what this DCU won.
+   * Sequential on purpose: the batch is small, and one shared client means one
+   * mirror — parallel claims would interleave its syncs for no real gain.
+   * A lost claim is not an error. It is the answer.
+   */
+  async function claimAll(scope) {
+    const won = []
+    for (const fact of scope) {
+      try {
+        const outcome = await client.claim(fact.id)
+        if (outcome.won) won.push(fact)
+        else log(`skipped ${fact.type} ${fact.id.slice(0, 8)} — claim lost to ${outcome.winner}`)
+      } catch (error) {
+        log(`claim failed for ${fact.id.slice(0, 8)} (${error instanceof Error ? error.message : String(error)}) — skipping`)
+      }
     }
+    // Our own claims are proof of life: no liveness write is owed on top.
+    if (won.length > 0) lastProofAt = Date.now()
+    return won
   }
 
   async function loop() {

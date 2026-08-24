@@ -189,12 +189,27 @@ bus ──poll──▶ patrol ──select──▶ queue ──followup──�
 ```
 
 Every fact matching `interests` that is still `open` and **not authored by this
-DCU** buys one waking turn, carrying the fact id, type, author, payload, and the
-claim → resolve protocol. Three filters keep the loop sane, in this order:
+DCU** buys one waking turn. Three filters keep the loop sane, in this order:
 
 1. **not self** — the agent's own publishes land in the stream it is tailing; without this the DCU triggers itself forever.
 2. **not mechanical** — `_.claim`, `_.resolve`, `sys.*` are protocol bookkeeping, never work.
 3. **still open** — the lifecycle fold already says whether someone owns it. Losing a claim is free, but not spending a turn is cheaper.
+
+Then, in `exclusive` mode, **the runtime claims what survived — before waking
+anything.** Ownership is a protocol operation, not a decision: §3.1 makes the
+winner the lowest-seq live claim, so there is nothing in it for a model to
+judge. Claiming in code settles it in milliseconds by seq, a DCU that loses
+spends *zero* model turns, and the turn that does run is told it already owns
+the fact. When the turn ends the runtime resolves it, hanging nothing on the
+model's willingness to call a tool — and if the turn appended nothing under that
+fact, the runtime records a `dcu.no_output` child instead of losing it silently.
+A long turn keeps its claims alive by re-claiming every Δ/3; a dead process
+stops renewing and its claims lapse for a sibling to pick up.
+
+In `observe` mode nothing is claimed at all: every interested DCU wakes on the
+same fact and deposits its own under it — N independent views of one fact,
+which is a perfectly good posture and no longer requires arguing with the
+briefing in a prompt.
 
 ## What it looks like on the bus
 
@@ -268,7 +283,9 @@ process.** Two units under one `author` is a double-start, which a fold detects
 | `pollMs` | `1000` | patrol poll interval |
 | `livenessTtlSec` | `300` | how long one registration stays valid; renewed at half that, and only when the DCU has not already published something |
 | `heartbeatSec` | `0` | legacy fixed-rate `sys.heartbeat`; leave off unless a heartbeat-folding reader needs it |
-| `claimTimeoutSec` | `0` | claim-expiry Δ for this DCU's folds; `0` uses the §8 default (600s) |
+| `mode` | `exclusive` | how ownership is taken — **in code either way, never by the model**. `exclusive`: the patrol claims each in-scope fact before waking the session, and the runtime resolves it when the turn ends. `observe`: nothing is claimed, so every interested DCU wakes on the same fact |
+| `retryOnNoOutput` | `1` | extra re-briefs when a turn appended no fact under the woken fact; `0` records the miss immediately |
+| `claimTimeoutSec` | `0` | claim-expiry Δ for this DCU's folds; `0` uses the §8 default (600s). Also paces claim renewal while a turn runs (Δ/3) |
 | `maxFactsPerTurn` | `5` | most facts briefed into one turn; the rest wait |
 | `sessionId` | `''` | pin the resident session id; empty mints a fresh one per boot |
 | `cwd` | `''` | working directory for the resident session; empty uses the process cwd |
@@ -312,9 +329,9 @@ other.
   is not wired up yet.
 - No per-fact turn budget: a fact that sends the model into a long tool loop
   holds the queue until it settles.
-- `claim`/`resolve` failures surface as ordinary tool errors (the SDK throws
-  when you are not the claim winner); the model is told to move on, but nothing
-  enforces it.
+- The bus tools stay mounted in both modes, so a model *can* still call
+  `antlegion_claim` / `antlegion_resolve` on its own. The briefing tells it not
+  to and the runtime owns the lifecycle, but nothing removes the tools.
 
 ## Requires
 

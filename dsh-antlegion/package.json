@@ -1,6 +1,6 @@
 {
   "name": "@antlegion/dsh",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "The AntLegion plugin for DeepSeek Harness: run dsh as a DCU mounted on the fact bus — it stands watch, responds to facts on the log by itself, and publishes what it did back as facts.",
   "type": "module",
   "main": "index.js",
@@ -41,5 +41,8 @@
     "fact-bus",
     "multi-agent"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "scripts": {
+    "test": "node test.mjs"
+  }
 }

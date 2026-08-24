@@ -59,6 +59,17 @@ export const Config = z.object({
   heartbeatSec: z.number().default(0),
   /** Claim-expiry Δ in seconds for this DCU's folds; 0 uses the §8 default. */
   claimTimeoutSec: z.number().default(0),
+  /**
+   * How ownership is taken — in code, either way; never by the model.
+   * `exclusive` (the DCU primitive): the patrol claims each in-scope fact
+   * BEFORE waking the session, so a lost claim costs zero model turns and the
+   * winner is settled by seq; the runtime resolves the fact when the turn ends.
+   * `observe`: nothing is claimed, so every interested DCU wakes on the same
+   * fact and deposits its own — N independent views of one fact.
+   */
+  mode: z.union([z.const('exclusive'), z.const('observe')]).default('exclusive'),
+  /** Extra re-briefs when a turn appended no fact under the woken fact. */
+  retryOnNoOutput: z.number().default(1),
   /** Most facts briefed into one turn; the rest wait for the next. */
   maxFactsPerTurn: z.number().default(5),
   /** Pin the resident session id. Empty mints a fresh one per boot. */
@@ -117,14 +128,20 @@ export function apply(ctx, config) {
 
     if (config.interests.length === 0) {
       log('WARNING: `interests` is empty — the resident session will never be woken by a fact. Set interests, e.g. ["task.*"].')
+    } else {
+      log(`mode ${config.mode} — ${config.mode === 'exclusive' ? 'the patrol claims before waking; the runtime resolves after the turn' : 'nothing is claimed; every interested DCU sees the same fact'}`)
     }
 
     const resident = new ResidentDCU(ctx, {
+      client,
       author: config.author,
       busUrl: config.busUrl,
       sessionId: config.sessionId,
       cwd: config.cwd,
       maxFactsPerTurn: config.maxFactsPerTurn,
+      mode: config.mode,
+      retryOnNoOutput: config.retryOnNoOutput,
+      claimTimeoutSec: config.claimTimeoutSec,
       log,
     })
 
@@ -138,6 +155,7 @@ export function apply(ctx, config) {
       livenessTtlSec: config.livenessTtlSec,
       heartbeatSec: config.heartbeatSec,
       claimTimeout,
+      mode: config.mode,
       log,
       onWork: (facts) => { resident.enqueue(facts) },
     })

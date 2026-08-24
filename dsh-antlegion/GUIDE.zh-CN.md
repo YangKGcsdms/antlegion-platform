@@ -316,7 +316,9 @@ refs:    { subject: "liveness:<author>" }
 | `pollMs` | `1000` | 巡检间隔 |
 | `livenessTtlSec` | `300` | 一次注册的有效期；到一半时才续，且自己发过事实就不续 |
 | `heartbeatSec` | `0` | 旧的固定频率心跳；除非有专门折叠心跳的读端，否则别开 |
-| `claimTimeoutSec` | `0` | claim 过期 Δ，`0` 用协议默认 600s |
+| `mode` | `exclusive` | `exclusive` 由巡检在唤醒前认领、运行时收尾；`observe` 不认领，人人都醒 |
+| `retryOnNoOutput` | `1` | 一轮零产出时额外重述几次，之后记 `dcu.no_output` |
+| `claimTimeoutSec` | `0` | claim 过期 Δ，`0` 用协议默认 600s；也是轮次中续期的节奏（Δ/3） |
 | `maxFactsPerTurn` | `5` | 一轮最多简报几条，其余排队 |
 | `sessionId` | `''` | 固定会话 id；空则每次启动新建 |
 | `cwd` | `''` | 常驻会话的工作目录；空则用进程 cwd |
