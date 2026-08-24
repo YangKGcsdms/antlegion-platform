@@ -4,600 +4,337 @@
 
 # AntLegion
 
-**几个 AI 智能体跑在同一个项目上，就会互相重做工作、丢失彼此的上下文、各走各路。** AntLegion 在事实层面解决它：一条只追加的**事实总线**，自治工作单元把发生的事贴上去、恰好一次地认领工作、让工作流自己涌现——没有编排器，没有谁指挥谁。本地、可内嵌的基础设施（像 Redis，不是 SaaS）。
+**AntLegion 是为智能体共享世界状态的事实日志。** 跨机器、跨运行时、跨厂商的智能体各自把观察写进同一条全序、只追加的日志，各自读日志、算出同一个世界——发生了什么、现在是什么、因何而起、引出了什么、可信与否。不发命令，不靠人转述。本地部署，可内嵌，像 Redis，不是 SaaS。
 
-![npx @antlegion/bus demo——恰好一次竞速、崩溃接管、字节级重放](deploy/media/demo.gif)
-
-它不锁文件、不串行化你的智能体——冲突在**分工层**就被消灭了，两个单元根本不会碰同一个任务。你已有的 Claude Code / Cursor 会话也能作为工作单元接入同一条总线（通过 [`alctl` CLI](#用-alctl-cli-接入-agent)）。
+![npx @antlegion/bus demo——隔离进程、同一个世界、字节级重放](deploy/media/demo.gif)
 
 [![npm](https://img.shields.io/npm/v/%40antlegion%2Fbus?style=flat-square&label=%40antlegion%2Fbus&color=CB3837&logo=npm)](https://www.npmjs.com/package/@antlegion/bus)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?style=flat-square&logo=typescript&logoColor=white)](antlegion-bus/tsconfig.json)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A518-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org)
-[![Tests](https://img.shields.io/badge/测试-147%20通过-brightgreen?style=flat-square)](antlegion-bus/test/)
-[![License](https://img.shields.io/badge/许可证-MIT-blue?style=flat-square)](LICENSE)
-[![Status](https://img.shields.io/badge/状态-alpha-orange?style=flat-square)]()
+[![Tests](https://img.shields.io/badge/tests-176%20passing-brightgreen?style=flat-square)](antlegion-bus/test/)
+[![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
+[![Status](https://img.shields.io/badge/status-alpha-orange?style=flat-square)]()
 
 </div>
 
 ---
 
-可以把它理解成**多 Agent 协调版的 Redis**：一个持久化进程，一条只追加的不可变事实日志，多个 Agent 各自读取并做出反应——协调从事实流的结构中自然涌现，无需中心化的编排者来分配指令。
+## 它解决什么
 
-## 目录
+几个互不共享进程的智能体——本机的 Claude Code、CI 里的 Codex、服务器上的常驻 Agent、厂商托管的 Agent——之间唯一的状态通道是人：从一个窗口复制到另一个窗口。同一进程树内有子 Agent、有共享内存；物理隔离的智能体之间没有，只有人肉中继。
 
-- [核心理念](#核心理念)
-- [核心特性](#核心特性)
-- [快速上手](#快速上手)
-- [事实的结构](#事实的结构)
-- [从代码接入](#从代码接入)
-- [用 `alctl` CLI 接入 Agent](#用-alctl-cli-接入-agent)
-- [经验证的保证](#经验证的保证)
-- [配置参数](#配置参数)
-- [架构](#架构)
-- [项目结构](#项目结构)
-- [当前状态](#当前状态)
-- [参与贡献](#参与贡献)
-- [许可证](#许可证)
+AntLegion 用一条日志取代这个中继。蚂蚁不下命令，只在地面留信息素，同伴读地面即知全局。这里的地面是一条**全序、只追加、内容寻址的事实日志**，"读地面"是一个确定性**折叠**：任何读者、任何节点、任何时刻、任何一次回放，算出的都是同一个答案。
 
----
-
-## 核心理念
+## 核心思想
 
 **只有事实，没有命令。**
 
-`"第 7 项待处理"` 是事实，可以发布到总线上。  
-`"worker-3，去处理第 7 项"` 是命令——它在这里没有立足之地。
+"deploy:prod 现在是 v42"是事实，上日志。
+"worker-3 去部署 v42"是命令，有收件人——日志里没有收件人。
 
-没有任何 Agent 会直接寻址另一个 Agent。Agent 向世界发布陈述，按自己的节奏读取共享日志，并做出反应。谁负责哪项工作、顺序如何、可信度多高——这一切都从事实流的结构中**自发涌现**，而非由某个调度者来安排。
+事实的 `refs` 只指向**事实 id，不指向智能体**：一条事实能说自己关于什么，说不了给谁。这就是"没有命令"的结构原因，也是它不是工作流引擎的原因——日志里没有步骤、没有指派、没有调度器。
 
-总线只强制执行一件事：**全序（total order）**。从全序中，恰好一次（exactly-once）的归属权自然成为数学定理——序号最小的认领胜出，所有读者从同一不可变流中计算出完全相同的结果。
+总线只管一件事：**全序**。关于这个世界你想知道的一切，都是对全序的折叠（`PROTOCOL.md` §3，规范性）：
 
-这不是口号，而是[可运行的多 Agent 压测验证过的](#经验证的保证)，并且[在真实竞争下测量过](research/s2-experiments-2026-08.md)。
-
-## 为什么存在
-
-每一套多智能体系统都会遭遇三种事故,它们同根同源——没有一份共享的、有序的"已发生"记录：
-
-1. **重复劳动。** 两个 agent 领了同一个任务，因为谁也看不见对方的意图。在这里，"领任务"本身就是一条事实（`_.claim`），全序让恰好一次成为定理——实测 **4 倍副本竞争下 100 个认领单元、双执行 0 次**（[实验记录](research/s2-experiments-2026-08.md)）。
-2. **上下文丢失。** A 学到的东西传不到 B，或者传过去时已经是过期的散文。在这里，每个观察都是不可变、内容寻址的事实，任何单元按自己的节奏折叠。
-3. **靠散文维系的工作流。** "先方案、再开发、后测试"写在提示词里，直到有人跳过一步。在这里，流水线是因果结构（`refs.parent`），证据形状由裁决者强制——注入实验中，"全绿但没写没测什么"的伪造报告被 **8/8 拦截、0 误杀**。
-
-这些失效模式在文献中早有记录——MAST 多智能体失效分类（[arXiv:2503.13657](https://arxiv.org/abs/2503.13657)）把智能体间失调与验证缺失列为主要失效类。但上面的数字是我们自己的：第一手、每个都能用一条命令复现。
-
-## 核心特性
-
-| 特性 | 机制 |
+| 问题 | 折叠 |
 |---|---|
-| **不可变事实** | 以 `sha256(canonical(record))` 为内容地址——相同内容自动去重，每条事实都有稳定且不可伪造的身份 |
-| **全序保证** | 总线分配严格递增的 `seq`，这是它对客户端的唯一权威 |
-| **恰好一次协调** | 某条事实上序号最小的认领胜出——这是全序的定理，而非锁或特殊端点 |
-| **可信时间** | 总线盖章的 `recv`（非作者声明的 `ts`）确定性地锚定所有基于时间的折叠计算，崩溃 Agent 的陈旧认领不会阻塞恢复流程 |
-| **无状态总线** | 认领、解决、信任、取代、因果均为对事实流的纯折叠函数——总线不持有任何 per-fact 可变状态 |
-| **持久化** | 只追加日志（`facts-v2.jsonl`），支持可配置的 `appendfsync` 策略；崩溃恢复只需重放日志，无需重建状态机 |
-| **可验证** | 总线对每条事实进行 HMAC 签名；恢复时校验签名；互操作由[跨语言一致性向量集](antlegion-bus/conformance/vectors.json)保证 |
+| **X 现在是什么** | `subject` 寄存器——seq 最高者胜出；撤回后折叠为「一无所知」，绝不回到旧值 |
+| **它是怎么来的 · 它引发了什么** | 因果踪迹——沿 `parent` 向后走到根，或向前走到每一个后代 |
+| **它可不可信** | corroborate / contradict 投票，quorum 是读者的策略 |
+| **谁拥有它** | seq 最小的存活 `claim_of`——所有权也是世界状态，恰好一次是全序的定理 |
 
-### 它是什么——不是什么
+同一条流，两个读者，答案必然相同——两台机器上的智能体之间只有这条日志，却算出同一个世界，这就是全部要点。它**不是**消息队列（事实不被消费）、**不是**编排器（没人派活）、**不是**工作流引擎（就算你搭出一条流水线，那也是读者事后从踪迹里折出来的形状，不是谁持有的状态）。
 
-不是消息队列（没有东西被消费掉）、不是编排器（没有人分派工作）、不是工作流引擎（流水线从流里折叠出来，从不被存储）。与今天其他的协作方式相比：
+## 事实
 
-| | 共享文件/草稿板 | SQLite 信箱 | 托管协调 SaaS | 平台内置共享状态（Agent Teams 类） | **AntLegion** |
-|---|---|---|---|---|---|
-| 全序 | ✗ | 按表、隐式 | 不透明 | 不透明 | ✓ 核心本原 |
-| 恰好一次认领 | ✗（靠锁和运气） | ✗（行锁） | 厂商定义 | 厂商定义 | ✓ 全序的定理 |
-| 因果/审计 | ✗ | ✗ | 部分 | 部分 | ✓ `refs` + 签名日志 |
-| 本地可内嵌 | ✓ | ✓ | ✗ | ✗ | ✓ 一个进程一个文件 |
-| 跨 harness | ✓（勉强） | ✓ | 绑框架 | 绑单一厂商 | ✓ HTTP + CLI + SDK，任何 agent |
-| 协议开放 | — | — | ✗ | ✗ | ✓ [PROTOCOL.md](PROTOCOL.md) + 一致性向量 |
+一个本原，不可变、内容寻址、位于单一全序中的唯一位置：
 
-### 三个机制，一套协作模型
+```jsonc
+{
+  "seq":    1337,           // 总线分配的全序位置（可信）
+  "recv":   1748300000.4,   // 总线盖章的可信接收时间——折叠用它，不用 ts
+  "id":     "b3f1…",        // sha256(canonical(record))——内容地址
+  "type":   "deploy.status",// 点分类型；保留类型以 "_." 开头
+  "author": "ci@build-7",   // 谁追加的
+  "ts":     1748300000.0,   // 作者自报的时间（仅供参考——可伪造，永远别拿它折叠）
+  "payload": { "…": "…" },  // 任意 JSON
+  "refs": {                 // 唯一的关系机制——所有值都是事实 id，
+    "subject": "deploy:prod",  // 绝不是 Agent id。这就是没有命令的
+    "parent":  "<id>",         // 结构性原因。
+    "supersedes": "<id>"       //（还有：tombstones · vote · claim_of · resolves · release_of）
+  },
+  "sig": "hmac…"            // 总线签的 HMAC-SHA256
+}
+```
 
-**持久化让 agent 共享现实，认领让 agent 分得清工，因果让工作流自己涌现。** 系统里的一切都是这三者之一，从同一条有序日志读出——持久化是只追加日志（[§1](PROTOCOL.md)），认领是最小 seq 定理（[§3.1](PROTOCOL.md)），因果是 `refs.parent` 链（[§3.4](PROTOCOL.md)）。
+**两个操作，这就是全部线面**：`POST /facts` 追加，`GET /facts?since=N` 读取。寄存器、踪迹、信任、所有权都是*关于事实的事实*，由读者折叠——见 [PROTOCOL.md](PROTOCOL.md)。
 
 ## 快速上手
 
-**前置要求：Node.js ≥ 20**
-
-**最快的一眼**——三幕 demo（恰好一次竞速 → 崩溃接管 → 字节级重放），零配置零 key，约 15 秒：
+**需要 Node.js ≥ 20。** 最快看一眼，零配置、零 API key、约 15 秒：
 
 ```bash
 npx @antlegion/bus demo
 ```
 
-主线是两个包、四条命令：起一条总线，放一支 DCU 舰队上去，喂一条需求，看着它自治跑完。
-
-**1. 起一条总线**（五秒钟，零配置）：
+真正的路径是一条总线加一个 shell。启动一次总线，然后让任何 Agent——这台机器上的或另一台上的——沉积与读取：
 
 ```bash
-npx @antlegion/bus
-# [antlegion-v2] append-only fact bus on http://localhost:28090 (fsync=everysec)
-# [antlegion-v2] dashboard → http://127.0.0.1:28090/dashboard
+npx @antlegion/bus                                                # 1. 一条事实日志在 :28090（HOST=0.0.0.0 即可跨机共享）
+
+# 机器 A
+alctl publish deploy.status '{"v":42}' --subject deploy:prod      # 2. 沉积你观察到的
+
+# 机器 B——另一个 Agent、另一种运行时，除了日志没有任何通道
+alctl current deploy:prod                                         # 3. prod 现在是什么？→ 那条 v42 事实
+alctl causation <id>                                              #    它是怎么来的？
+alctl descendants <id>                                            #    它引发了什么？
 ```
 
-**2. 起 DCU 舰队**（[`@antlegion/ant`](https://www.npmjs.com/package/@antlegion/ant)——dev-chain 六单元：4 个阶段 DCU + 裁决者 + 看门狗）：
+杀掉总线，从日志重启，在任何地方再跑一遍第 3 步：同样的事实、同样的答案，逐字节一致。
 
-```bash
-npx @antlegion/ant chain
-```
-
-**3. 喂一条需求，看链条自治运转**：
-
-```bash
-npx @antlegion/ant req new "试点需求" -s pilot
-npx @antlegion/ant board      # 监督看板 → http://localhost:28091/devchain.html
-```
-
-约 2 秒内 `dcu-plan` 认领需求（恰好一次，最小 seq 胜出）、产出 `plan.ready`、裁决者校验证据形状、链条停在 H1 人工门——在看板上批准后，dev → unittest → e2e 自己跑到 ✔ CHAIN DONE。没有编排器，没有单元互相寻址，全部协调都是对事实流的读者折叠。
-
-详见 [`ant/`](ant)（DCU 运行时、dev-chain、证据裁决、看板）。此外，任何能执行 shell 命令的 agent（Claude Code、Cursor……）都可以通过 [`alctl` CLI](#用-alctl-cli-接入-agent) 驱动总线做 publish/claim/resolve。
-
-**或者全部装进容器，一条命令**——1 个总线 + 3 个 pi-agent 容器（Ubuntu 24.04），100 个 LLM act 循环，结束打记分板：
-
-```bash
-cd deploy/mvp
-DEEPSEEK_API_KEY=sk-… docker compose up --build --exit-code-from mvp
-```
-
-详见 [`deploy/mvp/`](deploy/mvp)——act 经 pi-ai 走 DeepSeek 推理；`ANT_WORKER=simulated` 可在无 API key 时运行。
-
-**从源码运行**（开发用）：
-
-```bash
-git clone https://github.com/YangKGcsdms/antlegion-platform.git
-cd antlegion-platform/antlegion-bus
-npm install && npm run dev
-```
-
-### 或者用 Docker 跑
+想让它一直跑着，就按跑 Redis 的方式跑：一个容器、一个卷、一把稳定的密钥：
 
 ```bash
 docker run -d --name antlegion -p 28090:28090 \
   -v antlegion-data:/data -e ANTLEGION_BUS_SECRET=change-me \
-  ghcr.io/yangkgcsdms/antlegion
+  ghcr.io/yangkgcsdms/antlegion          # 多架构镜像；:latest 跟着最新的 bus-v* tag 走
 ```
 
-一个进程、一个卷——`/data` 里只有日志文件，别无他物。镜像在容器内绑定 `0.0.0.0`（docker 网络就是信任边界）；端口只发布到你信任调用方的地方。
+镜像在容器内绑 `0.0.0.0`——信任边界是 docker 网络，所以端口只发布到你信得过的地方。卷就是全部的持久化：里面只有一条只追加的日志，重启后的容器因此折叠出同一个世界，而不是一个新的。`ANTLEGION_BUS_SECRET` 要给一个固定值并留着：不设的话总线每次启动都新铸一把 HMAC 密钥，重启前写下的签名从此验不过（会在 `/info` 里显示成 `sig_failures`）。想自己构建，在仓库根目录：`docker build -t antlegion .`
 
-### 或者作为守护进程跑（redis-server 式）
+→ **守护进程模式、从源码跑、完整环境变量表**：[docs/CONFIGURATION.md](docs/CONFIGURATION.md) · **分步导览**：[docs/QUICKSTART.md](docs/QUICKSTART.md)
 
-```bash
-npm i -g @antlegion/bus
-antlegion start     # 后台常驻;pidfile 和日志与数据文件放在一起
-antlegion status    # pid · /health · 文件位置
-antlegion stop      # SIGTERM——退出前日志落盘
-```
+## 从代码里用
 
-**或自己构建镜像**（从仓库根目录构建）：
-
-```bash
-docker build -t antlegion .
-docker run -p 28090:28090 -e ANTLEGION_BUS_SECRET=your-stable-secret antlegion
-```
-
-### 用终端操作（`alctl` — redis-cli 的对应物）
-
-`npm i -g @antlegion/bus` 会安装两个命令：`antlegion`（服务器）和 `alctl`。每条 `alctl` 命令在 stdout 输出机器可读的 JSON；人类可读的错误走 stderr 并以非零码退出。
-
-```bash
-alctl publish task.build '{"target":"todo-app"}' --author alice
-# → {"id":"b3f1…","seq":1,"deduped":false}
-
-alctl claim <id> --author bob
-# → {"won":false,"winner":"alice"}        （退出码 1——你输掉了认领）
-
-alctl state <id>
-# → {"state":"claimed","owner":"alice"}
-
-alctl resolve <id> --author alice   # 只有认领胜者可以 resolve
-# → {"state":"resolved","owner":"alice"}
-# 非胜者的 resolve 会明确报错并以非零码退出：
-#   error: resolve ignored — fact <id> is owned by 'alice' (you are 'bob')
-
-alctl tail            # 打印一次当前流即退出
-alctl tail --follow   # 实时追尾：轮询 ?since= 直到 Ctrl-C
-
-alctl info            # 完整 INFO 载荷
-# → {"protocol":"2.0","head_seq":1,"facts":3,"fsync":"everysec","sig_failures":0,"secret_stable":true,…}
-```
-
-*（不想全局安装的话：`npx -y -p @antlegion/bus alctl <命令>`）*
-
-`--author <名字>` 是全局旗标，对所有会写入事实的命令生效。身份解析顺序：
-
-| 设置 | 用途 |
-|---|---|
-| `--author <名字>` | 单条命令的身份（优先级最高） |
-| `ANTLEGION_AUTHOR` | 整个 shell 会话的 CLI 身份 |
-| *（默认）* | `<系统用户名>@<主机名>`——跨 CLI 调用保持稳定，因此 `claim` 之后 `resolve` 开箱即用 |
-| `ANTLEGION_BUS_URL` | CLI/SDK 连接总线的地址（默认 `http://localhost:28090`） |
-
-### 或直接使用 HTTP API
-
-```bash
-# 写入一条事实
-curl -sX POST http://localhost:28090/facts \
-  -H 'content-type: application/json' \
-  -d '{"type":"task.build","author":"alice","ts":1748300000,"payload":{"target":"todo-app"}}'
-# 201 {"seq":1,"id":"b3f1…","sig":"…","deduped":false}
-
-# 从游标读取（类似 git fetch）
-curl -s "http://localhost:28090/facts?since=0&type=task.*"
-```
-
-这就是完整的线协议：**一个写操作，一个读操作，两个读便捷接口。** 认领、解决、信任等语义全是「关于事实的事实」，由客户端折叠计算得出。
-
-## 事实的结构
-
-唯一的本原——不可变、内容寻址、在单一全序中占据唯一位置：
-
-```jsonc
-{
-  "seq":    1337,           // 总线分配的全序位置（可信）
-  "recv":   1748300000.4,   // 总线盖章的可信接收时间（unix 秒）——所有时间折叠都基于此，而非 ts
-  "id":     "b3f1…",        // sha256(canonical(record))——内容地址
-  "type":   "build.failed", // 点分类型；保留类型以 "_." 开头
-  "author": "claude-code",  // 发布者
-  "ts":     1748300000.0,   // 作者声明的时间（仅供参考，可被伪造，不可用于折叠计算）
-  "payload": { "…": "…" },  // 任意 JSON
-  "refs": {                 // 唯一的关系机制——值永远是事实 id，绝不是 Agent id
-    "parent":     "<id>",   // 因果前驱
-    "claim_of":   "<id>",   // 对目标事实的独占认领
-    "resolves":   "<id>",   // 目标事实已完成处理
-    "release_of": "<id>",   // 放弃之前的认领
-    "vote":       "<id>",   // 佐证或反驳（配合 payload.verdict）
-    "supersedes": "<id>",   // 本事实取代目标事实
-    "subject":    "key",    // 用于「最新胜出」取代逻辑的分组键
-    "tombstones": "<id>"    // 目标事实被删除/GC（区别于取代）
-  },
-  "nonce": "k7x9",          // 可选——让内容相同的重复提交成为新事实
-  "sig":   "hmac…"          // 总线对 (id|author|type|ts|recv|seq) 的 HMAC-SHA256 签名
-}
-```
-
-> **`ts` 与 `recv` 的区别**：`ts` 是作者的声明（是内容哈希的一部分，但可被伪造）；`recv` 是总线亲历并签名的。所有基于时间的折叠计算都使用 `recv`，从不使用 `ts`，以确保任意两个读者的结果完全一致。
-
-保留事实类型（折叠层负责解释）：
-
-| 类型 | 含义 |
-|---|---|
-| `_.claim` | 对 `refs.claim_of` 的独占认领；序号最小者胜出 |
-| `_.resolve` | `refs.resolves` 所指事实已处理完毕；仅当前认领胜者发出的才有效 |
-| `_.release` | 作者放弃对 `refs.release_of` 的认领 |
-| `_.vote` | 佐证或反驳 `refs.vote`（见 `payload.verdict`） |
-| `_.tombstone` | `refs.tombstones` 所指事实被删除/GC；与取代（supersedes）语义不同 |
-
-## 从代码接入
-
-折叠客户端 SDK 负责「发布→读回→折叠」的底层工作，让调用侧保持整洁（`npm i @antlegion/bus`）：
+折叠 SDK 吸收了「追加—读回—折叠」的工作（`npm i @antlegion/bus`）：
 
 ```typescript
 import { ClientV2, httpTransport } from "@antlegion/bus/client";
 
-const alice = new ClientV2(httpTransport("http://localhost:28090"), "alice");
-const bob   = new ClientV2(httpTransport("http://localhost:28090"), "bob");
+// 两个除了总线地址什么都不共享的 Agent
+const sensor  = new ClientV2(httpTransport("http://10.0.0.7:28090"), "sensor@node-a");
+const watcher = new ClientV2(httpTransport("http://10.0.0.7:28090"), "watcher@node-b");
 
-// 发布一条待处理的工作项
-const { id } = await alice.publish("task.build", { target: "todo-app" });
+// A 沉积它看到的，然后修订——一个用普通字符串命名的寄存器
+const r1 = await sensor.publish("deploy.status", { v: 41 }, { refs: { subject: "deploy:prod" } });
+const r2 = await sensor.supersede(r1.id, "deploy.status", { v: 42 });
+await sensor.publish("alarm.raised", { why: "p99 up" }, { refs: { parent: r2.id } });
 
-// 两者竞争认领；序号最小者胜出——确定性，无锁
-const [ra, rb] = await Promise.all([alice.claim(id), bob.claim(id)]);
-const winner = ra.won ? alice : bob;
+// B 稍后在另一台机器上，折叠出同一个世界
+await watcher.currentOf("deploy:prod");     // → 那条 v42 事实（r1 折叠为 superseded）
+await watcher.historyOf("deploy:prod");     // → [r1, r2]——关于 prod 曾说过的一切
+await watcher.descendants(r2.id);           // → [alarm.raised]——v42 引发了什么
 
-// 胜者完成处理，可选地发出子事实（构成因果链）
-await winner.resolve(id, [{ type: "build.done", payload: { ok: true } }]);
-
-// 任意客户端从同一不可变日志折叠出相同状态
-console.log(await alice.state(id)); // { state: "resolved", owner: "alice" }
-console.log(await bob.state(id));   // 完全相同——确定性折叠
+// 所有权也是世界状态：两个 Agent 都想拥有某件事，
+// seq 最小者胜出，两边从同一条流算出同一个赢家
+const { id } = await sensor.publish("incident.open", { sev: 1 });
+const [a, b] = await Promise.all([sensor.claim(id), watcher.claim(id)]);
+console.log(a.won !== b.won, await watcher.state(id)); // true, { state: "claimed", owner: … }
 ```
 
-**同行评审（信任折叠）**：
+→ 信任折叠、因果、撤回、以及进程内嵌入：[docs/QUICKSTART.md](docs/QUICKSTART.md)
 
-```typescript
-await bob.observe(factId, "corroborate");   // 佐证
-await carol.observe(factId, "contradict");  // 反驳
+## 接上你已经在用的 Agent
 
-const verdict = await alice.trustOf(factId);
-// "asserted" | "corroborated" | "consensus" | "contested" | "refuted" | "superseded"
-```
-
-**因果链**：
-
-```typescript
-const chain = await alice.causation(buildDoneId);
-// [{ type: "task.build", … }, { type: "build.done", … }]  （根 → 叶）
-```
-
-**取代（最新胜出）**：
-
-```typescript
-// 为同一主体发布更新的状态，旧状态自动被取代
-await alice.publish("deploy.status", { stage: "testing" },
-  { refs: { subject: "deploy-run-42" } });
-
-await alice.publish("deploy.status", { stage: "done" },
-  { refs: { subject: "deploy-run-42" } });
-// 读者只会看到第二条为当前状态
-```
-
-**进程内嵌入模式**（测试或紧耦合集成）：
-
-```typescript
-import { BusV2 } from "@antlegion/bus/bus";
-import { ClientV2, localTransport } from "@antlegion/bus/client";
-
-const bus = new BusV2({ secret: "my-secret", dataDir: "./data" });
-const client = new ClientV2(localTransport(bus), "my-agent");
-// 无 HTTP、无网络——同一套 SDK，同一套折叠逻辑
-```
-
-## 用 `alctl` CLI 接入 Agent
-
-无头 / PI agent——Claude Code、Cursor、Codex CLI、shell 工具、cron 任务——通过 shell 调用 **`alctl` CLI** 驱动总线。一个接口，每个动词恰好映射到一次折叠调用。完整指南见 [`docs/AGENT-CLI.md`](docs/AGENT-CLI.zh-CN.md)。
+任何能跑 shell 命令的 Agent——Claude Code、Cursor、Codex CLI、一个 cron 任务、另一台机器上的常驻守护进程——都通过 **`alctl` CLI**（`redis-cli` 的对应物）接入同一条日志。每条命令输出机器可读的 JSON。
 
 ```bash
-export ANTLEGION_BUS_URL=http://localhost:28090   # 默认
-export ANTLEGION_AUTHOR=my-agent                   # 稳定的 agent 身份
+export ANTLEGION_AUTHOR=my-agent@my-host      # 稳定身份；一个身份 = 一个进程
 
-# 读取新事实、恰好一次认领、用子事实解决
-alctl read --type 'task.*' --since "$CURSOR"
-alctl claim <id> && alctl resolve <id>
-alctl publish task.done '{"result":"ok"}' --parent <id>
+alctl publish obs.metric '{"cpu":91}' --subject host:web-3     # 写下发生了什么
+alctl current host:web-3                                       # 读世界
+alctl read --type 'deploy.*' --since "$CURSOR"                  # 或从游标处 tail
+alctl claim <id> && alctl resolve <id>                          # 拥有一条事实（恰好一次），然后关闭它
 ```
 
-*（不想全局安装的话，给每条命令加前缀 `npx -y -p @antlegion/bus`。）*
+→ 完整动词参考、贴给 Agent 的第一条 prompt、`CLAUDE.md` / `.cursorrules` 规则片段、5 分钟双窗口实验：[docs/AGENT-CLI.md](docs/AGENT-CLI.md)
 
-`ANTLEGION_DATA_DIR` 与 `ANTLEGION_BUS_SECRET`（见[配置参数](#配置参数)）用于配置总线服务端本身。CLI 驱动的是与 HTTP 客户端相同的 `ClientV2` 折叠 SDK——协调语义只实现一次，不会因接口而重复。
+## 把 Agent 托管成常驻单元（DCU 模式）
 
-### 给 agent 的第一条 prompt
+上面讲的都是有人在驱动的 Agent。另一种姿态是**常驻**：没人驱动它，日志驱动它。它平时闲着，直到一条它声明关注的事实落到日志上——醒来、认领（同伴因此不会重复做）、干活、把产出挂回原事实底下。没有队列，没有调度器，没有人在提示符前面等着。
 
-采用发生在提示词里，不在安装里。给能执行 shell 命令的 agent 贴这段作为第一条消息：
+`@antlegion/dsh` 就是 **DeepSeek Harness** 的这种姿态：一个没有界面、也不需要人盯着的 dsh profile。感知是纯 Node 代码——轮询、推游标、折叠、筛选——只有「这条事实该怎么办」才花掉一次 LLM 轮次。
 
-> 查看 antlegion 事实总线上有没有开放的 `task.todo` 事实（`alctl read --type task.todo`）。有未认领的就先 `alctl claim <id>` 再干活；只有认领退出码为 0 才继续。做完后用简短的结果 `alctl resolve <id>`。如果没有开放任务，就 `alctl publish task.todo '{…}'` 把你接下来打算做的事发布出去，让其他 agent 看得见。
+### 装插件
 
-### 贴进 CLAUDE.md / .cursorrules 的协作规则
-
-```markdown
-## 多智能体协作（AntLegion）
-- 动手前先 `alctl read` 查总线；某任务的 task.todo 已被认领就换别的活。
-- 干活前先认领（`alctl claim <id>`）；只有退出码为 0 才继续。输掉认领是常态——换下一个。
-- 完成后 `alctl resolve <id>` 并附上产出。绝不只用散文宣布完工。
-- 把重要观察发布成事实（`alctl publish`），让其他 agent 能够反应——别囤上下文。
-```
-
-### 双窗口实验（5 分钟）
-
-开两个 PATH 上有 `alctl` 的 agent shell，都指向同一条总线，然后在**窗口 A**：
-
-> 发布一条 task.todo 事实——`alctl publish task.todo '{"title": "写一首关于全序的俳句"}'`——然后认领它（`alctl claim <id>`）并开始工作。
-
-紧接着在**窗口 B**：
-
-> 找到总线上最新的 task.todo（`alctl read --type task.todo`）并认领它。
-
-窗口 B 会输：`alctl claim` 以非零码退出并报出 A 是胜者，B 转头去干别的而不是重复劳动。这就是零锁的恰好一次——由哪条认领先落进全序决定，两个读者算出同一个结果。
-
-## 经验证的保证
-
-出发点——「Agent 只靠事实协作、无命令」——由 [`antlegion-bus/examples/`](antlegion-bus/examples) 中四个可运行的 swarm 压测验证。每个都启动一个真实服务端、拉起约 20 个自治 Agent，并断言一个可量化的通过门槛：
-
-| Swarm | 证明内容 | 通过门槛 |
-|---|---|---|
-| [`swarm-v2`](antlegion-bus/examples/swarm-v2.ts) | 50 项任务经 16 个 worker 460 次竞争认领后完成分发——**恰好一次**，零 Agent 间寻址 | `dupes=0  missing=0` |
-| [`scenario-resilience`](antlegion-bus/examples/scenario-resilience.ts) | Agent 中途崩溃，**认领超时重派**转移归属权；exactly-once 在故障下不破 | 无卡死项 |
-| [`scenario-consensus`](antlegion-bus/examples/scenario-consensus.ts) | 同行评审收敛真相；决策者**只对 consensus 行动**，绝不对被反驳的事实行动 | decider 从不对 refuted 行动 |
-| [`scenario-pipeline`](antlegion-bus/examples/scenario-pipeline.ts) | 因果多阶段 `build→test→deploy` + 最新胜出**取代**；所有监控者对唯一最新状态达成一致 | 所有监控者一致 |
+先探通节点。地址是这个插件唯一猜不出来的东西，而且填错了会被分类告诉你（`refused` / `dns` / `timeout` / `not-a-bus`），不会挂在那里转圈：
 
 ```bash
-npx tsx examples/swarm-v2.ts
-npx tsx examples/scenario-resilience.ts
-npx tsx examples/scenario-consensus.ts
-npx tsx examples/scenario-pipeline.ts
+cd dsh-antlegion
+node check.js http://10.0.0.7:28090 --roster    # 这是一条总线吗？上面已经有谁？
 ```
 
-每个示例都会在临时端口上自启自己的总线——无需提前启动任何总线。
-
-### 杀手锏演示
-
-[`demo-killer`](antlegion-bus/examples/demo-killer.ts) 用约 13 秒、三幕结构讲清整个卖点：**(1)** 来自 4 个"框架"的 8 个 agent 进程争抢 400 个任务——重复数为 0,由全序决定,而非锁;**(2)** 一个真实进程在工作途中被 `SIGKILL`,它留下的无主 claim 在可信总线时钟上过期并被幸存者重新赢得——没有编排器收到通知,因为根本不存在编排器;**(3)** 总线本身被杀掉并从日志重启——`head_seq`、流哈希、每个任务的所有者/状态逐字节一致地恢复。
+`@antlegion/dsh` 还没发到 npm，所以现在从本仓库链进 dsh profile：
 
 ```bash
-npx tsx examples/demo-killer.ts
+ln -sfn "$PWD" ~/.dsh/profiles/node_modules/@antlegion/dsh
+# 发布之后：  dsh plugin --profile dcu add @antlegion/dsh
 ```
 
-搭配 [`demo/`](antlegion-bus/demo) 里的零依赖实时看板——任务网格、agent 卡片、重复计数器在浏览器中实时更新,总线重启时自动做回放校验。详见 [`demo/README.md`](antlegion-bus/demo/README.md)。
+然后把这个 bundle 列进 profile，再给它一个地址和它关注的事实类型：
 
-## 配置参数
+```jsonc
+// ~/.dsh/profiles/dcu/package.json —— 一个 dcu profile 就是 dsh-base 加这一个 bundle，没别的
+{ "dsh": { "profile": { "bundles": ["@deepseek-ai/dsh-base", "@antlegion/dsh"] } } }
+```
 
-| 环境变量 | 默认值 | 说明 |
-|---|---|---|
-| `PORT` | `28090` | HTTP 监听端口 |
-| `HOST` | `127.0.0.1` | 监听地址——总线信任它的调用方（与 Redis 同款安全模型）；只在信任边界内设 `0.0.0.0` |
-| `ANTLEGION_DATA_DIR` | `.data-v2` | 日志文件目录（内含 `facts-v2.jsonl`） |
-| `ANTLEGION_FSYNC` | `everysec` | `always`（最强持久化）· `everysec`（最多丢 1 秒数据）· `no`（由 OS 决定）——对应 Redis 的 `appendfsync` |
-| `ANTLEGION_BUS_SECRET` | *（每次启动随机生成）* | HMAC 签名密钥。**生产环境务必设置稳定值**——不设置则每次重启后无法验证之前写入的签名 |
-| `ANTLEGION_MAX_DEPTH` | `64` | 因果链最大深度（§5 安全上限；内容寻址从结构上杜绝了环的存在） |
+```yaml
+# ~/.dsh/profiles/dcu/cordis.patch.yml —— patch 是整块替换 config，不是合并，
+# 所以你关心的键要写全；没写的走插件的 schema 默认值
+- id: antlegion-dcu
+  config:
+    busUrl: http://10.0.0.7:28090
+    author: dsh-dcu             # 它在群落里的身份——一个身份一个进程
+    resident: true              # false 只挂工具，不跑巡检
+    interests: ["task.*"]       # 唤醒它的事实类型——空的话它永远不会醒
+    publishes: ["task.done"]    # 它向名册声明自己会产出什么
+```
+
+`dsh --profile dcu` 启动；`dsh --profile dcu --dump-config` 只看合成结果、不启动。
+
+### 后台托管
+
+它就是一个普通的长期进程——交给你已经在用的进程守护即可。一份 systemd user unit：
+
+```ini
+# ~/.config/systemd/user/antlegion-dcu.service
+[Unit]
+Description=AntLegion resident DCU (DeepSeek Harness)
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/env dsh --profile dcu    # unit 的 PATH 里没有 dsh（nvm、asdf……）就写绝对路径
+Environment=DEEPSEEK_API_KEY=…              # 模型凭证也可以放在 ~/.dsh/settings.yaml 里
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+```
 
 ```bash
-# 生产环境启动示例
-ANTLEGION_BUS_SECRET=a-stable-32-char-secret \
-ANTLEGION_DATA_DIR=/var/lib/antlegion \
-ANTLEGION_FSYNC=always \
-node dist/index.js
+systemctl --user enable --now antlegion-dcu
+journalctl --user -u antlegion-dcu -f   # 启动四行：bus OK · session up · patrol starting · registered
 ```
 
-### 运维小抄
+`Restart=always` 在这里是安全的，而这是日志的性质，不是进程守护的功劳。一个握着认领死掉的常驻单元不会卡住任何东西：每条认领在总线盖章的 `recv` 之后 Δ 失效，同伴接着做，而且不会撤销一次真的完成了的 `resolve`。重复启动也不花代价——注册是 `refs.subject` 组里的一个 TTL 槽位，重启只会覆盖掉自己那条旧的，不会越堆越多。总线还没起就先起它也没问题：它会退避重连，等节点出现自己接上并重新报到。唯一要当心的和日志上每个 Agent 一样：**一个身份一个进程**——同一个 `author` 起两份就是双启动，这件事由折叠检测出来（`sys.identity.conflict`），而不是由总线禁止。
 
-- **数据在哪？** 一个只追加文件：`$ANTLEGION_DATA_DIR/facts-v2.jsonl`（默认 `.data-v2/`）。备份=复制它。
-- **想清零：** 停总线、删数据目录。别处没有任何状态。
-- **Ctrl-C 是安全的：** 关闭时日志落盘；恢复时重放并校验每条签名。
-- **务必设置稳定的 `ANTLEGION_BUS_SECRET`：** 不设的话每次启动都换新 HMAC 密钥——重启后先前写入的 `sig` 无法再验证（在 `/info` 里表现为 `sig_failures`）。
+同样的姿态、换成自带运行时而不是挂在 harness 上，就是 `@antlegion/ant`：`ant start --daemon` 把群落转到后台（pid、日志、工作记忆都在 `./.ant/`），`ant launchd` 打印一份 macOS 开机自启的 plist。
 
-### 安全模型
+### 在板上确认它活着
 
-与 Redis 同款信任边界：总线**信任它的调用方**。默认只绑 `127.0.0.1`；只有在你控制的边界内（docker 网络、VPC）才设 `HOST=0.0.0.0`。目前没有鉴权（[路线图](#路线图)）——不要暴露到不可信网络。
-
-### 疑难排查
-
-| 症状 | 原因 / 处理 |
-|---|---|
-| `error: port 28090 already in use` | 已有总线在跑——直接复用，或 `PORT=28091 npx @antlegion/bus` |
-| `/info` 里 `sig_failures > 0` | 总线用了不同（或缺失）的 `ANTLEGION_BUS_SECRET` 重启——设一个稳定值 |
-| alctl/SDK 报 `cannot reach bus` | 那个 URL 上没有总线——`npx @antlegion/bus`，或把 `ANTLEGION_BUS_URL` 指对 |
-| `resolve ignored — fact is owned by 'X'` | 你输掉了认领；这正是系统在工作。查状态、换活干 |
-| 两个单元做了同一个任务 | 是不是两个进程共用同一个身份？一个身份 = 一个进程（[为什么](research/s2-experiments-2026-08.md)） |
-
-## 架构
-
-```
- 客户端
- ┌──────────────────┐  ┌───────────────┐
- │  ClientV2 (SDK)  │  │  alctl CLI    │
- │  client.ts       │  │  cli.ts       │
- │  - publish       │  │  - publish    │
- │  - claim/resolve │  │  - claim      │
- │  - trust/state   │  │  - tail/info  │
- └────────┬─────────┘  └──────┬────────┘
-          │                   │
-          └─────────┬─────────┘
-                    │ HTTP (POST /facts · GET /facts)
-                    ▼
- ┌────────────────────────────────────────────────────────────────┐
- │  server.ts（Hono，轻量线协议层）                               │
- │  POST /facts · GET /facts[?since&type&author&refs.*]           │
- │  GET /facts/:id · GET /facts/head · GET /info                  │
- │  POST /admin/rewrite（BGREWRITEAOF 对应物）                    │
- │                                                                │
- │  ┌──────────────────────────────────────────────────────────┐  │
- │  │  BusV2（无状态可信核心）  bus.ts                         │  │
- │  │  · 分配 seq（严格递增）                                  │  │
- │  │  · 校验 id == sha256(canonical(record))                  │  │
- │  │  · 盖章 recv + 计算 HMAC sig                             │  │
- │  │  · 按 id 去重（幂等追加）                                │  │
- │  │  · 强制因果深度上限（§5）                                │  │
- │  │  · 日志恢复时验证签名（§4）                              │  │
- │  └────────────────────────┬─────────────────────────────────┘  │
- │                           │                                    │
- │  ┌────────────────────────▼─────────────────────────────────┐  │
- │  │  JsonlLog（只追加文件日志）  log.ts                      │  │
- │  │  · 单个追加模式 fd（一次打开，不按写操作开关）           │  │
- │  │  · appendfsync: always | everysec | no                   │  │
- │  │  · 压缩：临时文件 + 原子重命名                           │  │
- │  └──────────────────────────────────────────────────────────┘  │
- └────────────────────────────────────────────────────────────────┘
-
- 读者折叠（fold.ts — 纯函数，在客户端运行，不在服务端）
- ┌──────────────────────────────────────────────────────────────────────────┐
- │  lifecycle(stream, F)       →  open | claimed | resolved | dead          │
- │  claimWinner(stream, F)     →  string | null                             │
- │  trust(stream, F, quorum)   →  asserted | corroborated | consensus | …  │
- │  supersededBy(stream, F)    →  id | null                                 │
- │  causationChain(stream, F)  →  Fact[]（根 → 叶）                        │
- └──────────────────────────────────────────────────────────────────────────┘
+```bash
+alctl colony
+# [{"author":"dsh-dcu","interests":["task.*"],"publishes":["task.done"]}]
 ```
 
-**关键设计取舍**：语义（meaning）存在于折叠函数中，而非总线里。对同一事实流进行相同折叠的两个客户端，无论何时读取都会得到完全相同的结果——总线只负责定序和保存。
+沉积一条它说过自己关心的事实，然后看它在没人盯着的情况下把闭环走完：
+
+```bash
+alctl publish task.todo '{"title":"用一句话说明这次 p99 尖刺"}'   # → {"id":"3729ce03…","seq":14}
+alctl state 3729ce03…         # → {"state":"resolved","owner":"dsh-dcu"}
+alctl descendants 3729ce03…   # → 它挂在原事实底下的那条 task.answer
+```
+
+```
+日志上的样子（节选）——全程没有人在提示符前面
+#14  task.todo    @carter                         另一个节点沉积下来的事实
+#15  _.claim      @dsh-dcu   claim_of: 3729ce03…  它折叠到了，先把所有权占下
+#17  _.resolve    @dsh-dcu   resolves: 3729ce03…  处理完毕
+#18  task.answer  @dsh-dcu   parent:   3729ce03…  产出挂成因果链——踪迹留在日志上
+```
+
+`task.*` 只是个例子，认领也不是必须的：一个只观察、只沉积的常驻单元同样是合格的蚂蚁。
+
+→ 配置键、工具与巡检的分工、以及「liveness 是 TTL 槽位而不是心跳流」：[dsh-antlegion/README.md](dsh-antlegion/README.md) · 从选地址到验证闭环走一遍的中文接入指引：[dsh-antlegion/GUIDE.zh-CN.md](dsh-antlegion/GUIDE.zh-CN.md)
+
+## 这东西真的成立吗？
+
+可运行的场景会启动真实服务器、拉起彼此独立的 Agent、断言一个可度量的通过门槛：
+
+- **共享视图**——6 个传感器节点沉积并修订读数，其中一个中途被杀；8 个冷读者在随机时刻醒来，各自把整个世界（每个 subject 的当前值、历史、踪迹、后代）折叠成一个 sha256。同一 head ⇒ 每个读者同一哈希；杀掉并回放总线 ⇒ 同一哈希；被撤回的寄存器处处折叠为「一无所知」；**流中零个 claim**——这个场景什么都不协调，只共享一个世界。
+- **争用下的所有权**——来自 4 个「框架」的 8 个进程争抢 400 条事实，`dupes=0`；一个进程持有认领时被 `SIGKILL`，其所有权确定性地过期；总线从日志重启，逐字节一致地回来。
+- 另有 16 个 worker 的扇出/扇入、崩溃重派、共识门控决策、带取代的因果流水线。
+
+```bash
+npx tsx examples/scenario-shared-view.ts    # 隔离节点 · 一个世界 · 零 claim
+npx tsx examples/demo-killer.ts             # 三幕所有权 demo
+```
+
+→ 完整表格、争用下的数字、设计理由：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 ## 项目结构
 
+三个已发布的包，加上文档、demo 和一个落地页。每个顶层条目都列在这里——不在这张图里的，就不该在仓库里。
+
 ```
-antlegion-platform/
-├── README.md               ← 英文文档（每份文档都有 .zh-CN.md 中文版）
-├── README.zh-CN.md         ← 你在这里
-├── PROTOCOL.md             ← 线协议规范——§3 折叠规则为规范性
-├── Dockerfile              ← docker build . && docker run -p 28090:28090 …
-├── ant/                    ← @antlegion/ant——DCU 运行时 + dev-chain 舰队 + 看板
-├── docs/
-│   ├── QUICKSTART.md       ← 逐步指南：服务端 + SDK + CLI
-│   ├── AGENT-CLI.md        ← agent 如何用 alctl 驱动总线
-│   └── EVOLUTION.md        ← v0 → v1 → v2：尝试过什么、为何改变
-└── antlegion-bus/
-    ├── src/
-    │   ├── bus.ts          ← 无状态可信核心
-    │   ├── fold.ts         ← 读者折叠（语义层）
-    │   ├── client.ts       ← ClientV2 折叠 SDK
-    │   ├── server.ts       ← Hono 线协议层
-    │   ├── log.ts          ← 只追加日志
-    │   ├── cli.ts / bin.ts ← alctl CLI
-    │   ├── hash.ts         ← sha256 内容地址 + HMAC + verifySig
-    │   ├── canonical.ts    ← stableJsonStringify（兼容 Python 浮点格式）
-    │   ├── types.ts        ← Fact、FactInput、Refs、RESERVED 类型
-    │   └── config.ts       ← 环境变量配置（redis.conf 对应物）
-    ├── conformance/
-    │   ├── vectors.json    ← §4 互操作契约：7 个哈希 + 24 个折叠向量
-    │   ├── generate.ts     ← 从参考实现派生向量
-    │   └── verify.py       ← 独立的 Python §4 重新实现（跨语言证明）
-    ├── examples/
-    │   ├── swarm-v2.ts              ← 21 个 Agent 的恰好一次扇出
-    │   ├── scenario-resilience.ts  ← 崩溃 + 重派
-    │   ├── scenario-consensus.ts   ← 同行评审信任
-    │   └── scenario-pipeline.ts    ← 因果流水线 + 取代
-    └── test/               ← 147 个测试（vitest，约 1 秒）
+AntLegion/
+├── PROTOCOL.md             ← 线协议规范——§3 折叠规则是规范性的
+├── CLAUDE.md               ← 给在本仓库工作的编码 Agent 的定向说明
+├── Dockerfile              ← 构建总线镜像；构建上下文是仓库根
+│
+│   ── 包（已发布到 npm）──
+├── antlegion-bus/          ← @antlegion/bus——日志、折叠 SDK、alctl CLI
+├── ant/                    ← @antlegion/ant——住在日志上的常驻 Agent（镜像 → 折叠 → 行动）；
+│                             附带一条 dev-chain 作为*工作流客户端示例*，不是产品本身
+├── antlegion-alias/        ← antlegion——20 行别名，让 `npx antlegion` 启动总线
+├── dsh-antlegion/          ← @antlegion/dsh——把 DeepSeek Harness 跑成日志上的常驻 Agent
+│
+│   ── 其它 ──
+├── docs/                   ← QUICKSTART · AGENT-CLI · ARCHITECTURE · CONFIGURATION ·
+│                             FACT-MODEL · EVOLUTION · DOCKER-VERIFY · protocol/ · proposals/
+├── research/               ← 上文数字引用的第一手测量
+├── deploy/                 ← mvp/（docker-compose 运行）· media/ · 校验脚本
+├── toys/                   ← 小型可运行用例：hr-colony、pi-duo、pi-agent
+├── site/                   ← antlegion.dev 落地页（静态）
+└── dcu-workspace/          ← `ant` 默认监视的运行时工作区（仅本地）
 ```
+
+有两样东西故意**不在**树里：`.data-v2/`（日志本体）和 `.ant/`（常驻 Agent 的 pid、日志、工作记忆）。两者都是运行时状态，在任意层级被 gitignore。
 
 ## 当前状态
 
-**Alpha** — 核心协议、参考实现和单节点运维故事已完备。尚不建议用于不可信的公网环境。
+**Alpha**——核心协议、参考实现、单节点运维故事都是扎实的。尚不建议用于不可信的公网（没有鉴权；总线信任它的调用者，和 Redis 一样）。
 
-### 已完成
+已完成：无状态可信核心 · 带 `appendfsync` 与压缩的只追加日志 · 读者折叠 SDK（寄存器、踪迹、信任、所有权）· `alctl` CLI · 带独立 Python 校验器的跨语言合规向量 · 共享视图 + 所有权场景 · Docker 镜像 · 进程内约 160k 追加/秒 · 176 个测试 · npm 包 · 常驻 Agent（`ant init` / `ant start`、`@antlegion/dsh`）。
 
-- [x] 无状态可信核心：分配全序 · 校验内容哈希 · HMAC 签名 · 持久化 · 按区间返回
-- [x] 只追加日志，支持 `appendfsync always|everysec|no` + BGREWRITEAOF 风格压缩
-- [x] 读者折叠 SDK：`lifecycle`、`trust`、`supersession`、`causation`
-- [x] `alctl` CLI — redis-cli 的对应物
-- [x] agent 经 `alctl` 从 shell 驱动总线——全折叠动词对等，无需按集成写适配器（`docs/AGENT-CLI.md`）
-- [x] §5 追加时的因果深度上限强制
-- [x] §4 日志恢复时的签名校验，`sig_failures` 通过 `/info` 暴露
-- [x] 跨语言一致性向量——哈希 + 折叠互操作证明，配套独立 Python 校验器
-- [x] 四个多 Agent 验证 swarm（恰好一次 · 韧性 · 共识 · 流水线）
-- [x] Docker 镜像 · 进程内约 16 万 append/s 基准测试 · 147 个测试
+下一步：多语言客户端 SDK（Go、Python、Rust——[合规向量](antlegion-bus/conformance/vectors.json)是测试目标）· `PROTOCOL.md` 的论文级重写（[docs/protocol/](docs/protocol/)）· 面向暴露部署的鉴权与限流 · 复制/高可用（[§7](PROTOCOL.md)）。
 
-### 路线图
+## 文档
 
-**近期——任何人五分钟能上手的 MVP**
-- [x] npm 包：[`@antlegion/bus`](https://www.npmjs.com/package/@antlegion/bus) · [`@antlegion/ant`](https://www.npmjs.com/package/@antlegion/ant)
-- [x] LLM 驱动的 worker（pi-ai → DeepSeek 或任何 OpenAI 兼容端点）——协调保持确定性，LLM 只产内容
-- [x] `ant init` / `ant start`——问答引导 + 常驻蚁群
-- [x] `npx @antlegion/bus demo`——三幕 killer demo，零配置零 key
-- [x] CI（测试 + 类型检查 + 跨语言一致性校验 + 破线护栏）
-- [ ] README 顶部 demo GIF · GitHub Releases
+| | |
+|---|---|
+| [PROTOCOL.md](PROTOCOL.md) | 线协议——权威；§3 折叠规则是规范性的 |
+| [docs/QUICKSTART.md](docs/QUICKSTART.md) | 分步：线面、CLI、SDK、持久化与恢复 |
+| [docs/AGENT-CLI.md](docs/AGENT-CLI.md) | 从已有 Agent 驱动日志，以及如何让它采用 |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 各部分如何拼合、什么被证明了、为什么长这样 |
+| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | 环境变量、运行方式、运维速查、排障 |
+| [docs/FACT-MODEL.md](docs/FACT-MODEL.md) | 板上有谁、孤儿事实、上下文充分性闭环 |
+| [docs/EVOLUTION.md](docs/EVOLUTION.md) | v0 → v1 → v2：试过什么、为什么变 |
+| [ant/README.md](ant/README.md) | 日志上的常驻 Agent；dev-chain 作为工作流客户端示例 |
+| [dsh-antlegion/README.md](dsh-antlegion/README.md) | DeepSeek Harness 作为常驻单元：安装、配置键、它是怎么被唤醒的 |
 
-**中期——被测量的协调层**
-- [ ] 多语言客户端 SDK——Go、Python、Rust（[一致性向量](antlegion-bus/conformance/vectors.json)就是测试标靶）
-- [ ] 评估基准：重复劳动率、认领竞争结果、接管时延、拦截率——[S2 实验系列](research/s2-experiments-2026-08.md)是它的种子
-- [ ] 只读运维看板（fold.ts 跑在浏览器里——读者折叠模型本身就是可观测性）
-- [ ] 面向暴露部署的鉴权 + 每作者速率限制
-
-**远期——智能体舰队的默认协调层**
-- [ ] 复制 / 高可用（单写者 + 故障切换，PROTOCOL.md §7）
-- [ ] DCU 生态：角色模板（`ant init --template dev-chain` 及更多），任何 harness 的 agent 都是同一条总线上的一等单元——多智能体协调的 "Redis"
-
-### 它从哪来
-
-这是第二个系统。第一个——[claw_fact_bus](https://github.com/YangKGcsdms/claw_fact_bus)（2026-03，Python）——让总线当仲裁者、按兴趣推送事实，死于本设计所治愈的那些病：服务端状态、隐式命令、协调规则住在运行时里。重写删掉了一切能删的，只留下删不掉的——全序——并把所有语义搬进读者折叠。完整故事见 [EVOLUTION.md](docs/EVOLUTION.md)；先造出会失败的版本，正是这个版本长成这样的原因。
+每份文档都有 `.zh-CN.md` 伴生版。
 
 ## 参与贡献
 
-欢迎参与贡献。请注意以下几点：
-
-**协议变更会破坏线兼容性。** 任何对事实结构、`id` 计算方式（§4）或 §3 折叠规则的修改，都必须同步体现在三处：`PROTOCOL.md`、`conformance/vectors.json`（用 `npx tsx conformance/generate.ts` 重新生成）以及跨语言校验器。运行 `python3 conformance/verify.py` 确认未出现分歧。
-
-**提交 PR 前请运行：**
+欢迎贡献。**协议变更是线上破坏性的**：对事实形状、`id` 计算（§4）或 §3 折叠规则的任何改动，必须同时落到 `PROTOCOL.md`、`conformance/vectors.json`（用 `npx tsx conformance/generate.ts` 重新生成）和跨语言校验器——在一个声明 `[protocol-change]` 的提交里一起落地。
 
 ```bash
-npm test                      # 147 个测试，约 1 秒
+npm test                      # 176 个测试，约 1 秒
 npx tsc --noEmit              # 类型检查
 python3 conformance/verify.py # 跨语言哈希证明
-npx tsx examples/swarm-v2.ts  # 快速跑一下 swarm（可选，但受欢迎）
 ```
 
-建议先阅读 [`EVOLUTION.md`](docs/EVOLUTION.md)——它记录了设计决策和已被否定的方向，能帮你避免重走弯路。
+先读 [docs/EVOLUTION.md](docs/EVOLUTION.md)——它能帮你避免重新发明已被放弃的方案。
 
 ## 许可证
 
-MIT — 见 [LICENSE](LICENSE)。
+MIT——见 [LICENSE](LICENSE)。
 
 ---
 
 <div align="center">
-  <sub>AntLegion Protocol v2.0 · 设计者：Carter.Yang · 从第一原理推导，2026 年。</sub>
+  <sub>AntLegion Protocol v2.0 · Carter.Yang 设计 · 2026 年从第一性原理推导。</sub>
 </div>

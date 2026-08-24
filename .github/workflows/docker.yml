@@ -39,5 +39,5 @@ jobs:
             ghcr.io/yangkgcsdms/antlegion:latest
           labels: |
             org.opencontainers.image.source=https://github.com/YangKGcsdms/AntLegion
-            org.opencontainers.image.description=Append-only fact bus for AI agent fleets — run it like redis
+            org.opencontainers.image.description=Shared world-state log for AI agents that share nothing else — run it like redis
             org.opencontainers.image.licenses=MIT
