@@ -117,7 +117,8 @@ poll(游标) → 重建共享折叠 → 判定触发谓词 → act → 推进游
 - **按 `id` 幂等**：重发相同内容返回既有事实；要做真正的新动作就换一个 `nonce`。多个子系统是有意吃这个性质的——`sys.registry` 用 `ts:0` + 固定 nonce 发布，重启再注册自动去重；调度器每次触发用 `sched:{colony}:{name}:{slot}`，重启永不重复触发；`req new` 与 ingestor 回填对同一目录规划出逐字节相同的事实。
 - **长时间的 act 靠重叠再认领续期，绝不 release**（`worker-spawn.ts`）：每 Δ/3 用新 nonce 再认领同一输入；旧 claim 在 `recv+Δ` 过期后，同一 author 的新 claim 就成了最小的存活 seq。所有权无缝延续，零竞态、零协议改动；子进程死了续期即停，claim 自然失效。
 - **总线无法禁止两个进程共用一个 author——但折叠能看见。** `detectIdentityConflicts` 折叠心跳：同一 author 下两个存活 token 就是重复启动（检测代替禁止）。一个身份 = 一个进程。
-- **服务端配置由环境变量驱动**（`antlegion-bus/src/config.ts`，redis.conf 对应物）：`PORT`（28090）、`HOST`（127.0.0.1）、`ANTLEGION_DATA_DIR`（`.data-v2`）、`ANTLEGION_FSYNC`（`always|everysec|no`，默认 `everysec`）、`ANTLEGION_BUS_SECRET`、`ANTLEGION_MAX_DEPTH`（64）。设置**稳定**的 `ANTLEGION_BUS_SECRET`——未设置时总线每次启动都会生成新的 HMAC 密钥，重启前写入的 `sig` 就无法再被验证。
+- **服务端配置由环境变量驱动**（`antlegion-bus/src/config.ts`，redis.conf 对应物）：`PORT`（28090）、`HOST`（127.0.0.1）、`ANTLEGION_DATA_DIR`（`.data-v2`）、`ANTLEGION_FSYNC`（`always|everysec|no`，默认 `everysec`）、`ANTLEGION_BUS_SECRET`、`ANTLEGION_MAX_DEPTH`（64）、`ANTLEGION_CLAIM_TIMEOUT`（Δ，秒）。设置**稳定**的 `ANTLEGION_BUS_SECRET`——未设置时总线每次启动都会生成新的 HMAC 密钥，重启前写入的 `sig` 就无法再被验证。
+- **Δ 钉在日志上，不在进程上（§8.4 M12）。** 总线在日志创建时把它写进 `<dataDir>/log-meta.json`，此后每次启动都采用那个值，`ANTLEGION_CLAIM_TIMEOUT` 与之冲突时**拒绝启动**。`ANTLEGION_CLAIM_TIMEOUT` 未设表示「没有偏好」（解析成 `undefined` 而不是 600），已存在的日志保留自己的 Δ。这不是图省事的校验：§8.4 的每个结果都是 *(前缀, Δ)* 的函数，同一条 journal 用两个 Δ 服务，能把 `resolved` 折回 `open` —— 一个终态在没追加任何事实的情况下被撤销。见 `research/protocol-v3-audit-2026-08.md` 第一节。
 - ESM（`"type":"module"`）；包内导入从 `.ts` 源使用显式 `.js` 扩展名。
 - **规范安全规则已强制，而非只是文档（§10）。** `append` 拒绝因果深度超过 `maxDepth` 的追加；parent *环*无需检查——内容寻址让它们从结构上不可构造。总线在密钥稳定时对恢复的每条事实验证 `sig`，并通过 INFO 暴露 `sig_failures`（`hash.ts:verifySig`，常时比较；HMAC 是对称的，所以只有总线/共享密钥的副本能验证，HTTP 客户端不能）。
 - spawn 出来的 agent 子进程只拿到**白名单环境变量**；`ANTLEGION_BUS_SECRET` 与 `LARK_*` 即便写进 `spawn.envPass` 也一律不传。
@@ -128,4 +129,4 @@ poll(游标) → 重建共享折叠 → 判定触发谓词 → act → 推进游
 - `PROTOCOL.md` —— 协议（权威；§8 折叠为规范性）。`PROTOCOL.zh-CN.md` —— 同一份规范的中文版，逐节对齐。
 - `docs/QUICKSTART.md` · `docs/AGENT-CLI.md`（agent 如何通过 `alctl` 驱动总线）· `docs/FACT-MODEL.md` · `docs/EVOLUTION.md`（v0 运行时 → v1 → v2 一元论重构，以及 v1 为何被移除）· `docs/DOCKER-VERIFY.md` · `docs/proposals/`（待评审的设计方案）。
 - `README.md` —— 概览、定位、仓库地图、已验证保证。`ant/README.md` —— DCU 模型、dev-chain 表格、监督看板。
-- `research/` —— README 引用的第一方实测数据（竞争下的重复执行、伪造证据拦截）。`deploy/mvp/`、`toys/` —— 容器化的多 Agent 跑法。
+- `research/` —— README 引用的第一方实测数据，外加 `protocol-v3-feasibility-2026-08.md`（十二个隔离进程对着一条日志）、`protocol-v3-audit-2026-08.md`（对规范自身主张的对抗性审计）、`implementation-mvp-assessment-2026-08.md`（§10.2 的 MUST 逐条对照代码）。`deploy/mvp/`、`toys/` —— 容器化的多 Agent 跑法。

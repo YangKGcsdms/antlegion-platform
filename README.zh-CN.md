@@ -11,7 +11,7 @@
 [![npm](https://img.shields.io/npm/v/%40antlegion%2Fbus?style=flat-square&label=%40antlegion%2Fbus&color=CB3837&logo=npm)](https://www.npmjs.com/package/@antlegion/bus)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?style=flat-square&logo=typescript&logoColor=white)](antlegion-bus/tsconfig.json)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A518-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org)
-[![Tests](https://img.shields.io/badge/tests-369%20passing-brightgreen?style=flat-square)](antlegion-bus/test/)
+[![Tests](https://img.shields.io/badge/tests-387%20passing-brightgreen?style=flat-square)](antlegion-bus/test/)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 [![Status](https://img.shields.io/badge/status-alpha-orange?style=flat-square)]()
 
@@ -202,7 +202,19 @@ cd antlegion-bus && npm ci && npm run build && npm pack --pack-destination /tmp
 cd ../ant && npm install --no-save /tmp/antlegion-bus-0.5.0.tgz
 ```
 
-已完成：无状态可信核心 · 带 `appendfsync`、撕裂尾恢复与「不改变折叠结果」压缩的只追加日志 · 读者折叠 SDK（寄存器、踪迹、信任、所有权）含 §10.1 授权门控 · `alctl` CLI · 跨语言合规向量，其独立 Python 校验器检查的是**折叠而不只是哈希**（204 条断言）· 共享视图 + 所有权场景 · Docker 镜像 · 进程内约 160k 追加/秒 · 三个包共 369 个测试（bus 246 · ant 119 · dsh 4）· npm 包 · 常驻 Agent（`ant init` / `ant start`、`@antlegion/dsh`）。
+对 `@antlegion/dsh` 来说这只是三个安装陷阱之一（另两个：`@deepseek-ai` 的 `latest` 标签指向一个自身依赖 404 的版本；peer 图在合理时间内解析不完）。`dsh-antlegion/setup-dcu-profile.sh` 三个一起处理，直接建出能 boot 的 profile；`dsh-antlegion/verify-loop.sh` 再把整条链路走完 —— 注册上册、被别人写的事实唤醒、claim、resolve、发布产物 —— 全程不需要模型 key。
+
+### 它不做什么
+
+三条在动手之前值得知道的边界，都是设计的推论而不是缺口：
+
+- **读者的内存随日志年龄增长，而且没有上界。** §8.0 要求完整前缀，§11.2 禁止压缩回收骨架，于是每个合规读者都要永久持有整条日志的 `{id, seq, recv, author, refs, sig}`，回答一个问题是 O(N)。10⁵ 条事实时参考实现的折叠仍是毫秒级；跑上几年的日志需要增量折叠、给派生状态打检查点、或按 subject 空间切成多条日志（[§2.3](PROTOCOL.md)）。这是「总线无状态、含义住在读者里」这笔交易的价钱，不是 bug。
+- **`author` 是自称的，所以 §10.1 的门是给诚实参与者防手滑的，不是给对手防越权的。** 每一道门 —— 只有作者能撤回或取代自己的事实、只有领取胜出者能 resolve —— 比的都是一个没人认证过的 `author`。在可信网络内这恰恰对；在开放网络上，除了 §9.1 的排序结果，§8 的每一条保证都相对于 `author` 诚实（[§12.2](PROTOCOL.md)）。
+- **一条日志就是一个世界。** `seq` 只在一条日志内有意义，折叠不跨日志（[§2.4](PROTOCOL.md)）。只读副本、按 subject 空间分片都行；两个写者共用一条日志是另一个协议。总线的可用性就是这个世界的可用性。
+
+`research/protocol-v3-audit-2026-08.md` 完整论证了这三条，以及它们之后还剩下什么。
+
+已完成：无状态可信核心 · 带 `appendfsync`、撕裂尾恢复与「不改变折叠结果」压缩的只追加日志 · 读者折叠 SDK（寄存器、踪迹、信任、所有权）含 §10.1 授权门控 · `alctl` CLI · 跨语言合规向量，其独立 Python 校验器检查的是**折叠而不只是哈希**（204 条断言）· 共享视图 + 所有权场景 · Docker 镜像 · 进程内约 160k 追加/秒 · Δ 被钉进日志，重启不再能悄悄重折它的历史 · 三个包共 387 个测试（bus 263 · ant 119 · dsh 5）· npm 包 · 常驻 Agent（`ant init` / `ant start`、`@antlegion/dsh`）。
 
 下一步：多语言客户端 SDK（Go、Python、Rust——[合规向量](antlegion-bus/conformance/vectors.json)是测试目标）· 面向暴露部署的鉴权与限流（[§10.3](PROTOCOL.md)）· 复制/高可用（[§11.3](PROTOCOL.md)）· 给 `sig` 的字段加长度前缀（[§5.10](PROTOCOL.md)）。
 
@@ -218,6 +230,7 @@ cd ../ant && npm install --no-save /tmp/antlegion-bus-0.5.0.tgz
 | [docs/FACT-MODEL.md](docs/FACT-MODEL.md) | 板上有谁、孤儿事实、上下文充分性闭环 |
 | [docs/EVOLUTION.md](docs/EVOLUTION.md) | v0 → v1 → v2：试过什么、为什么变 |
 | [docs/protocol/](docs/protocol/) | v3.0 工作区——诊断、推导、骨架 |
+| [research/](research/) | 第一手测量、十二进程可行性验证、对抗性协议审计、以及 MUST 逐条对照实现的评估 |
 | [ant/README.md](ant/README.md) | 日志上的常驻 Agent；dev-chain 作为工作流客户端示例 |
 
 每份文档都有 `.zh-CN.md` 伴生版，`PROTOCOL.zh-CN.md` 也在内——两份协议文本都对应 v3.0，且逐节保持对齐。
@@ -229,7 +242,7 @@ cd ../ant && npm install --no-save /tmp/antlegion-bus-0.5.0.tgz
 这条规则有用的另一半是反过来的，也是这里最便宜的一件审阅工具：**一次只重述规范的改动，必须让每一个向量逐字节不变。** 如果你只改了文字而 `vectors.json` 动了，说明你在无意中改了语义。
 
 ```bash
-npm test                      # 总线 246 个测试，约 2 秒
+npm test                      # 总线 263 个测试，约 2 秒
 npx tsc --noEmit              # 类型检查
 python3 conformance/verify.py # 跨语言证明：204 条断言，含折叠
 ```
