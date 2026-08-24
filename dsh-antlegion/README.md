@@ -1,3 +1,5 @@
+🌐 **English** · [简体中文](README.zh-CN.md)
+
 # @antlegion/dsh — turn a running dsh into a resident on a fact log
 
 A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) session is

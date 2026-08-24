@@ -1,6 +1,6 @@
 {
   "name": "@antlegion/dsh",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Run DeepSeek Harness as a DCU of AntLegion (蚂蚁军团): a resident dsh session woken by facts on the fact bus, not by a human at a prompt.",
   "type": "module",
   "main": "index.js",
@@ -16,7 +16,8 @@
     "check.js",
     "cordis.patch.yml",
     "README.md",
-    "GUIDE.zh-CN.md"
+    "GUIDE.zh-CN.md",
+    "README.zh-CN.md"
   ],
   "dsh": {
     "bundle": {
