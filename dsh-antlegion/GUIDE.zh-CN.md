@@ -51,7 +51,8 @@ cd ../antlegion-bus && npm run dev
 ## 2. 探通（**这一步别跳**）
 
 ```bash
-node check.js http://127.0.0.1:28090 --roster
+npx -p @antlegion/dsh antlegion-dcu-check http://127.0.0.1:28090 --roster
+# 在本仓库里：node check.js http://127.0.0.1:28090 --roster
 ```
 
 通了：
@@ -124,19 +125,16 @@ publishes:
 
 ## 5. 装上去
 
-已发布：
+`dsh plugin` 是把参数转发给 profile 目录里的 pnpm，所以三种包源都成立：
 
 ```bash
 dsh plugin --profile dcu add @antlegion/dsh
+# 从本仓库装：  dsh plugin --profile dcu add link:/path/to/AntLegion/dsh-antlegion
+# 直接从 git 装：dsh plugin --profile dcu add "github:YangKGcsdms/AntLegion#path:/dsh-antlegion"
 ```
 
-本仓库直接用（不需要发包）——链进 profile 的 `node_modules`：
-
-```bash
-ln -sfn "$PWD" ~/.dsh/profiles/node_modules/@antlegion/dsh
-```
-
-然后在 `~/.dsh/profiles/dcu/package.json` 里把它列进 bundles：
+装进去只是放进 `node_modules`，**激活靠 bundles 列表**——在
+`~/.dsh/profiles/dcu/package.json` 里把它列上：
 
 ```json
 {
