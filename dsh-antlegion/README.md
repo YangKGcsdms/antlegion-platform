@@ -55,6 +55,7 @@ these is one line of code's worth of claim and one place to go read it:
 | **produces something** | children of the resolve are ordinary facts with your own types, so the next DCU folds them as input | `alctl descendants <id>` |
 | **handles its own context** | the host's `dsh-compaction-basic` compacts at 80% pressure and on overflow; the plugin only reports whether it is mounted | the `auto-compaction: on` line at boot |
 | **compacts the session** | same mechanism — every briefing is self-contained precisely because compaction may have removed everything before it | the host logs `compaction (pressure): shadowed N surface nodes` |
+| **is configurable without a restart** | the setup page swaps the runtime — client, tools, patrol, sessions — against the new address | `VIA_SETUP_UI=1 ./verify-loop.sh` boots one pointed at nothing and fixes it through the page |
 | **switches session on an unrelated fact** | `topics.js` folds a topic out of `refs.subject` / the causal trail; a new topic opens its own conversation, bounded by an LRU and resumable by a derived session id | `opened session … for topic subject:incident:42`, then a different one for the next subject |
 
 ## What it looks like on the bus
@@ -98,6 +99,28 @@ Three filters keep the loop sane, in this order:
 dsh --profile dcu               # or ./.dsh-launcher/node_modules/.bin/dsh
 ```
 
+Then open **http://127.0.0.1:28092** — the DCU serves its own setup page. Put in
+the bus address, press **Check**, press **Save**. The running process picks it
+up; there is nothing to restart and no YAML to find first.
+
+![the setup page: bus address, identity, wakes-on globs, and what is in effect](../deploy/media/dsh-setup-ui.png)
+
+The address is the one thing this plugin cannot guess for you, and until it is
+right the DCU does nothing at all — so that is the one thing that gets a UI.
+**Check** runs the same probe `check.js` runs, so a wrong address comes back
+classified (`refused` / `dns` / `timeout` / `not-a-bus`) instead of as a spinner.
+**Save** writes `~/.antlegion/dsh-dcu.json` — a file this plugin owns, holding
+only the four fields the page edits — and swaps the runtime: the client, the
+tools bound to it, the patrol and the sessions are rebuilt against the new
+address, so nothing is left pointing at the old log.
+
+A saved field wins over the profile's `cordis.patch.yml`, and both the page and
+the boot log say which is which — a setting that silently overrides a file
+someone wrote by hand is the same class of surprise as a Δ that changes on
+restart. Delete the file to go back to the profile. `setupUi: false` turns the
+page off; it binds loopback, and binding it wider is a warning rather than a
+door, because it can change which log this agent publishes to.
+
 That script exists because the two-line version below is the shape of the
 thing and not a working recipe today. It is worth knowing which three things
 it is working around, because each of them fails in its own direction:
@@ -131,7 +154,8 @@ Check the composed tree without booting, and prove the loop closes:
 
 ```bash
 dsh --profile dcu --dump-config
-./verify-loop.sh
+./verify-loop.sh                 # boots, drives, and asserts the whole loop
+VIA_SETUP_UI=1 ./verify-loop.sh  # …starting from a DCU pointed at nothing
 ```
 
 `verify-loop.sh` starts a bus, starts the DCU, has a *different* author deposit
@@ -175,6 +199,10 @@ omitted falls back to the schema default.
 | `heartbeatSec` | `0` | legacy fixed-rate `sys.heartbeat`; leave off unless a heartbeat-folding reader needs it |
 | `claimTimeoutSec` | `0` | **fallback** Δ, used only while the bus publishes none. Since v3.0 Δ belongs to the log (§8.4) and the patrol reads it from `/info`; `0` uses the §B default (600s) |
 | `maxFactsPerTurn` | `5` | most facts briefed into one turn; the rest wait |
+| `setupUi` | `true` | serve the setup page |
+| `setupUiHost` | `127.0.0.1` | interface for the setup page; wider than loopback is warned about |
+| `setupUiPort` | `28092` | 28090 is the bus, 28091 is ant's board |
+| `settingsPath` | `''` | where the page saves; empty uses `~/.antlegion/dsh-dcu.json` |
 | `sessionScope` | `subject` | which facts share a conversation — see below. `subject` \| `root` \| `fact` \| `none` |
 | `maxLiveSessions` | `3` | conversations kept live at once; past this the least recently used is flushed and disposed |
 | `resumeSessions` | `true` | reopen a topic's persisted session instead of starting it blank |

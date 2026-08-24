@@ -13,6 +13,8 @@
     "topics.js",
     "patrol.js",
     "resident.js",
+    "settings.js",
+    "setup-ui.js",
     "preflight.js",
     "check.js",
     "cordis.patch.yml",

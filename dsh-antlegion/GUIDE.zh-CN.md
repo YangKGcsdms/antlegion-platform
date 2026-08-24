@@ -126,7 +126,25 @@ publishes:
 
 ```bash
 ./setup-dcu-profile.sh          # 建出 dcu profile，指向 127.0.0.1:28090
+dsh --profile dcu
 ```
+
+然后打开 **http://127.0.0.1:28092** —— DCU 自带一个配置页。填总线地址，点 **Check**，
+点 **Save**。运行中的进程直接接上，不用重启，也不用先去找 YAML 文件在哪。
+
+![配置页：总线地址、身份、唤醒 glob，以及当前生效的是什么](../deploy/media/dsh-setup-ui.png)
+
+地址是这个插件唯一猜不出来的东西，而在它填对之前 DCU 什么也做不了 —— 所以只有这一件事
+配了界面。**Check** 跑的就是 `check.js` 那个探测，地址不对会回来一个分类
+（`refused` / `dns` / `timeout` / `not-a-bus`），而不是一个转圈。**Save** 写进
+`~/.antlegion/dsh-dcu.json`（这个插件自己的文件，只放页面能改的那四个字段），然后**换掉
+整个运行时**：客户端、绑在它上面的工具、巡检、会话全部按新地址重建，不会有任何东西还指着
+旧日志。
+
+页面里存的值**盖过** profile 的 `cordis.patch.yml`，而页面和启动日志都会说清楚每一项来自
+哪边 —— 悄悄盖掉别人手写的配置文件，和一个重启就变的 Δ 是同一类意外。删掉那个文件就回到
+profile。`setupUi: false` 关掉这个页面；它只绑回环，绑得更宽是一句告警而不是一扇门，
+因为它能改变这个 agent 往哪条日志上发事实。
 
 一条命令，因为手工那两行今天走不通。三个坑各有各的失败方式，值得知道：
 
@@ -178,7 +196,8 @@ dsh --profile dcu --dump-config
 不用模型 key 就把整条链路走完并断言结果：
 
 ```bash
-./verify-loop.sh
+./verify-loop.sh                 # 起、驱动、断言整条闭环
+VIA_SETUP_UI=1 ./verify-loop.sh  # ……而且从一个「指着空地址」的 DCU 开始，用配置页救回来
 ```
 
 它起一条总线、起 DCU，让**另一个作者**丢一条 `task.request` 进来，然后检查流应该长成的
@@ -342,6 +361,10 @@ refs:    { subject: "liveness:<author>" }
 | `heartbeatSec` | `0` | 旧的固定频率心跳；除非有专门折叠心跳的读端，否则别开 |
 | `claimTimeoutSec` | `0` | **兜底** Δ，仅在总线没有发布 Δ 时生效。v3.0 起 Δ 属于日志（§8.4），巡逻从 `/info` 读；`0` 用 §B 默认 600s |
 | `maxFactsPerTurn` | `5` | 一轮最多简报几条，其余排队 |
+| `setupUi` | `true` | 起不起配置页 |
+| `setupUiHost` | `127.0.0.1` | 配置页绑哪个接口；比回环更宽会告警 |
+| `setupUiPort` | `28092` | 28090 是总线，28091 是 ant 的看板 |
+| `settingsPath` | `''` | 配置页存哪；空则用 `~/.antlegion/dsh-dcu.json` |
 | `sessionScope` | `subject` | 哪些事实共用一段对话，见第 12 节。`subject` \| `root` \| `fact` \| `none` |
 | `maxLiveSessions` | `3` | 同时活着的会话数上限，超出把最久未用的 flush 掉并释放 |
 | `resumeSessions` | `true` | 主题回来时接上它自己持久化的那段对话，而不是从空白开始 |

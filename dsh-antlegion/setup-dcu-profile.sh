@@ -82,7 +82,8 @@ say "4/5  install @antlegion/dsh + @antlegion/bus into the profile tree"
 NM="$DSH_HOME/profiles/node_modules/@antlegion"
 rm -rf "$NM/dsh" "$NM/bus"; mkdir -p "$NM/dsh" "$NM/bus"
 tar -xzf "$WORK/$BUS_TGZ" -C "$NM/bus" --strip-components=1
-for f in index.js tools.js patrol.js topics.js resident.js preflight.js check.js test.js \
+for f in index.js tools.js patrol.js topics.js resident.js settings.js setup-ui.js \
+         preflight.js check.js test.js \
          package.json cordis.patch.yml README.md GUIDE.zh-CN.md; do
   cp "$HERE/$f" "$NM/dsh/$f"
 done

@@ -17,6 +17,7 @@ set -euo pipefail
 PROFILE="${PROFILE:-dcu}"
 PORT="${PORT:-28390}"
 STUB_PORT="${STUB_PORT:-28391}"
+UI_PORT="${UI_PORT:-28392}"
 DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
@@ -26,6 +27,7 @@ WORK="${VERIFY_WORK:-$(mktemp -d)}"; mkdir -p "$WORK"
 # verifier that depends on leftover state is not verifying anything.
 AUTHOR="dsh-dcu-verify-$$"
 BUS="http://127.0.0.1:$PORT"
+UI="http://127.0.0.1:$UI_PORT"
 DSH="${DSH:-$HERE/.dsh-launcher/node_modules/.bin/dsh}"
 command -v dsh >/dev/null 2>&1 && DSH="${DSH_OVERRIDE:-$(command -v dsh)}"
 ALCTL="$REPO/antlegion-bus/dist/bin.js"
@@ -52,19 +54,33 @@ pids+=($!)
 sleep 1
 
 step "the DCU"
+# VIA_SETUP_UI=1 boots this the way it looks on install day: pointed at nothing,
+# listening to nothing, and fixed through the setup page instead of a config
+# file. Everything after that step is identical, which is the claim being tested
+# — the page is not a second path, it writes the same configuration.
+if [ -n "${VIA_SETUP_UI:-}" ]; then
+  START_BUS="http://127.0.0.1:1"    # a port nothing can be listening on
+  START_INTERESTS=""
+else
+  START_BUS="$BUS"
+  START_INTERESTS="      - task.*"
+fi
+
 # One overlay on top of the profile's own patch: this run's bus and model.
 cat > "$WORK/verify.patch.yml" <<YML
 - id: antlegion-dcu
   config:
-    busUrl: $BUS
+    busUrl: $START_BUS
     author: $AUTHOR
     resident: true
     interests:
-      - task.*
+$START_INTERESTS
     publishes:
       - task.done
     pollMs: 500
     livenessTtlSec: 300
+    setupUiPort: $UI_PORT
+    settingsPath: $WORK/settings.json
 - id: llm-deepseek
   config:
     baseURL: http://127.0.0.1:$STUB_PORT/v1
@@ -73,6 +89,27 @@ YML
 VERIFY_LOOP_KEY=stand-in DSH_HOME="$DSH_HOME" \
   "$DSH" --profile "$PROFILE" --patch "$WORK/verify.patch.yml" > "$WORK/dcu.log" 2>&1 &
 pids+=($!)
+
+if [ -n "${VIA_SETUP_UI:-}" ]; then
+  step "install day: the DCU is running and pointed at nothing"
+  for _ in $(seq 1 60); do curl -sf --noproxy '*' "$UI/api/state" >/dev/null 2>&1 && break; sleep 0.5; done
+  curl -sf --noproxy '*' "$UI/api/state" >/dev/null || fail "the setup page never came up on $UI"
+  grep -q "UNREACHABLE" "$WORK/dcu.log" || fail "expected the DCU to report an unreachable bus"
+
+  # Check the address first, exactly as the page's Check button does.
+  CHECK=$(curl -sf --noproxy '*' -X POST "$UI/api/check" -H 'content-type: application/json' \
+            -d "{\"busUrl\":\"$BUS\"}" | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const d=JSON.parse(s);console.log(d.verdict.ok?"ok":"bad",d.rendered)})')
+  echo "check → $CHECK"
+  [ "${CHECK%% *}" = ok ] || fail "the setup page could not reach the bus it was pointed at"
+
+  step "save it — the running process picks it up"
+  curl -sf --noproxy '*' -X POST "$UI/api/save" -H 'content-type: application/json' \
+    -d "{\"busUrl\":\"$BUS\",\"author\":\"$AUTHOR\",\"interests\":[\"task.*\"],\"publishes\":[\"task.done\"]}" \
+    > "$WORK/saved.json" || fail "save was rejected"
+  node -e 'const d=require(process.argv[1]); if (d.source.busUrl!=="setup-ui") { console.error("busUrl did not take"); process.exit(1) }' "$WORK/saved.json" \
+    || fail "the saved busUrl is not what the DCU is running"
+  echo "saved → $(node -e 'const d=require(process.argv[1]); console.log(d.config.busUrl, "·", d.status)' "$WORK/saved.json")"
+fi
 
 for _ in $(seq 1 60); do grep -q "registered —" "$WORK/dcu.log" 2>/dev/null && break; sleep 0.5; done
 grep -q "registered —" "$WORK/dcu.log" || { grep -v "^ *at " "$WORK/dcu.log" | head -30; fail "the DCU never registered"; }
@@ -137,3 +174,5 @@ curl -sf --noproxy '*' "$BUS/facts?since=0" | node -e '
 
 printf '\n\033[32mPASS\033[0m — registered, woken by another author, claimed, resolved, published,\n'
 printf '        and an unrelated fact opened its own conversation.\n'
+[ -n "${VIA_SETUP_UI:-}" ] && printf '        All of it configured through the setup page, on a running process.\n'
+exit 0

@@ -12,7 +12,7 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn, execFile } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createRequire } from 'node:module'
@@ -20,6 +20,7 @@ import { createRequire } from 'node:module'
 import { renderProbe, probeBus, SPEAKS_PROTOCOL } from './preflight.js'
 import { createPatrol } from './patrol.js'
 import { groupBySession, sessionKeyOf, SHARED_TOPIC } from './topics.js'
+import { mergeSettings, readSettings, validateSettings, writeSettings } from './settings.js'
 import { ClientV2, httpTransport } from '@antlegion/bus/client'
 import { colony } from '@antlegion/bus/fold'
 
@@ -239,4 +240,85 @@ test('an unrelated fact lands in a different group — this is the session switc
     [F('a', { subject: 'incident:42' }), F('b', { subject: 'hiring:eng-3' })], [], 'subject')
   assert.equal(groups.length, 2)
   assert.notEqual(groups[0].key, groups[1].key)
+})
+
+// ── what the setup page may save ───────────────────────────────────────────
+// This endpoint decides which log the agent's facts land in and whose name they
+// carry, so it validates rather than trusts — and against the protocol's own
+// limits, so a value that saves is a value that appends.
+
+test('a saved busUrl must be an http(s) URL', () => {
+  assert.equal(validateSettings({ busUrl: 'http://10.0.0.7:28090' }).ok, true)
+  assert.equal(validateSettings({ busUrl: 'https://bus.internal' }).ok, true)
+  for (const bad of ['', '   ', 'not a url', 'ftp://host', 'file:///etc/passwd', 42, null]) {
+    assert.equal(validateSettings({ busUrl: bad }).ok, false, JSON.stringify(bad))
+  }
+})
+
+test('a trailing slash is normalised away, so one address is one string', () => {
+  assert.equal(validateSettings({ busUrl: 'http://h:28090/' }).value.busUrl, 'http://h:28090')
+})
+
+test('only the four fields the page owns are settable', () => {
+  const bad = validateSettings({ busUrl: 'http://h:1', maxLiveSessions: 99 })
+  assert.equal(bad.ok, false)
+  assert.match(bad.error, /maxLiveSessions/)
+  assert.match(bad.error, /cordis\.patch\.yml/)
+})
+
+test('author and glob entries are held to the §5.2 / §B limits', () => {
+  assert.equal(validateSettings({ author: 'x'.repeat(257) }).ok, false)
+  assert.equal(validateSettings({ author: 'x'.repeat(256) }).ok, true)
+  assert.equal(validateSettings({ interests: Array(65).fill('a.*') }).ok, false)
+  assert.equal(validateSettings({ interests: Array(64).fill('a.*') }).ok, true)
+})
+
+test('blank glob lines are dropped rather than saved as empty patterns', () => {
+  // The textarea is line-oriented; a trailing newline must not become a glob
+  // that matches nothing and quietly widens the roster.
+  assert.deepEqual(validateSettings({ interests: ['task.*', '', '  ', 'req.ready'] }).value.interests,
+                   ['task.*', 'req.ready'])
+})
+
+test('a saved field wins over the profile, and says so', () => {
+  const profile = { busUrl: 'http://127.0.0.1:28090', author: 'dsh-dcu', interests: [], publishes: [] }
+  const { config, source } = mergeSettings(profile, { busUrl: 'http://10.0.0.7:28090' })
+  assert.equal(config.busUrl, 'http://10.0.0.7:28090')
+  assert.equal(source.busUrl, 'setup-ui')
+  assert.equal(config.author, 'dsh-dcu')
+  assert.equal(source.author, 'profile')
+})
+
+test('an empty overlay changes nothing — every field reads as profile', () => {
+  const profile = { busUrl: 'http://127.0.0.1:28090', author: 'dsh-dcu', interests: ['task.*'], publishes: [] }
+  for (const overlay of [null, undefined, {}, { busUrl: '' }]) {
+    const { config, source } = mergeSettings(profile, overlay)
+    assert.deepEqual(config, profile)
+    assert.equal(source.busUrl, 'profile')
+  }
+})
+
+test('an empty saved list is still a saved list — "wakes on nothing" is a choice', () => {
+  const { config, source } = mergeSettings({ interests: ['task.*'] }, { interests: [] })
+  assert.deepEqual(config.interests, [])
+  assert.equal(source.interests, 'setup-ui')
+})
+
+test('a corrupt settings file falls back to the profile instead of taking the DCU down', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-settings-'))
+  const path = join(dir, 'dsh-dcu.json')
+  for (const junk of ['not json', '[]', 'null', '"a string"']) {
+    writeFileSync(path, junk)
+    assert.equal(readSettings(path), null, junk)
+  }
+  assert.equal(readSettings(join(dir, 'absent.json')), null)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('a saved file round-trips through a directory that does not exist yet', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-settings-'))
+  const path = join(dir, 'nested', 'deeper', 'dsh-dcu.json')
+  writeSettings(path, { busUrl: 'http://h:28090', interests: ['task.*'] })
+  assert.deepEqual(readSettings(path), { busUrl: 'http://h:28090', interests: ['task.*'] })
+  rmSync(dir, { recursive: true, force: true })
 })
