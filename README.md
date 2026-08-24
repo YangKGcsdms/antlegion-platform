@@ -97,7 +97,20 @@ alctl descendants <id>                                            #    what did 
 
 Kill the bus, restart it from its journal, run step 3 again anywhere: same facts, same answers, byte for byte.
 
-→ **Docker, daemon mode, from source**: [docs/CONFIGURATION.md](docs/CONFIGURATION.md) · **step-by-step tour**: [docs/QUICKSTART.md](docs/QUICKSTART.md)
+For anything you want to keep running, run it the way you run Redis — a container, a volume, a stable secret:
+
+```bash
+docker run -d --name antlegion -p 28090:28090 \
+  -v antlegion-data:/data -e ANTLEGION_BUS_SECRET=change-me \
+  ghcr.io/yangkgcsdms/antlegion
+```
+
+The image binds `0.0.0.0` inside the container — the docker network is the trust boundary, so publish the port only where you trust the callers. The volume is the entire persistence story: one append-only journal, plus — on the v3.0 line — the `log-meta.json` that pins Δ to it, which is why a restarted container folds the same history rather than a re-interpreted one. Set `ANTLEGION_BUS_SECRET` to something stable and keep it: without it the bus mints a fresh HMAC key each boot and signatures written before the restart stop verifying.
+
+> [!NOTE]
+> `ghcr.io/yangkgcsdms/antlegion:latest` and `npx @antlegion/bus` are still the **0.4.1 / protocol 2.0** line; 0.5.0 is not published yet ([Status](#status)). For a v3.0 bus today, build it from this checkout — `docker build -t antlegion .` at the repo root — and run that tag instead. A v2.0 journal is not readable by a v3.0 reader, so pick one before you start writing facts you want to keep.
+
+→ **daemon mode, from source, the full env table**: [docs/CONFIGURATION.md](docs/CONFIGURATION.md) · **step-by-step tour**: [docs/QUICKSTART.md](docs/QUICKSTART.md)
 
 ## Use it from code
 
@@ -143,6 +156,71 @@ alctl claim <id> && alctl resolve <id>                          # own a fact (ex
 ```
 
 → Full verb reference, the first prompt to paste into an agent, a rules snippet for `CLAUDE.md` / `.cursorrules`, and a 5-minute two-window experiment: [docs/AGENT-CLI.md](docs/AGENT-CLI.md)
+
+## Host an agent as a resident (DCU mode)
+
+Everything above is an agent someone is driving. A **DCU** is the other posture: nothing drives it — the log does. It sits idle, wakes when a fact matching what it declared an interest in lands, claims that fact so no sibling repeats the work, does the work, and deposits what it produced back under the original. No queue, no dispatcher, nobody at a prompt.
+
+`@antlegion/dsh` is that posture for **DeepSeek Harness** — a dsh profile with no UI and nothing to attend to, so it runs wherever a process runs.
+
+### Install it
+
+```bash
+cd dsh-antlegion
+./setup-dcu-profile.sh                            # builds a bootable "dcu" profile from this checkout
+./.dsh-launcher/node_modules/.bin/dsh --profile dcu   # or just `dsh --profile dcu` if it is on PATH
+```
+
+Then open **http://127.0.0.1:28092** and put in the bus address. **Check** runs the same probe `check.js` runs, so a wrong address comes back classified (`refused` / `dns` / `timeout` / `not-a-bus`) instead of as a spinner; **Save** swaps the running client, its tools, the patrol and the sessions onto the new address, with nothing to restart. The address is the one thing the plugin cannot guess, and until it is right the DCU does nothing at all — so that is the one thing that gets a UI.
+
+The script is there because `dsh plugin --profile dcu add @antlegion/dsh` cannot work yet: `@antlegion/bus@0.5.0` is unpublished, the `@deepseek-ai` `latest` tag points at a release whose own dependencies 404, and the peer graph does not resolve in reasonable time. It works around all three — [which one fails how](dsh-antlegion/README.md).
+
+### Keep it running
+
+It is an ordinary long-lived process; put it under whatever supervisor you already run. A systemd user unit:
+
+```ini
+# ~/.config/systemd/user/antlegion-dcu.service
+[Unit]
+Description=AntLegion DCU (DeepSeek Harness)
+After=network-online.target
+
+[Service]
+# absolute path — setup-dcu-profile.sh leaves the launcher in the checkout
+ExecStart=/srv/AntLegion/dsh-antlegion/.dsh-launcher/node_modules/.bin/dsh --profile dcu
+Environment=DEEPSEEK_API_KEY=…
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user enable --now antlegion-dcu
+journalctl --user -u antlegion-dcu -f          # the four boot lines, then one per wake
+```
+
+`Restart=always` is safe here in a way it usually is not, and that is the point of the log: session ids are derived from (identity, topic), so a restarted DCU resumes the conversations it was having rather than starting blank; and a DCU that dies holding claims strands nothing, because each claim lapses Δ after its `recv` and a sibling picks the work up — without un-doing a resolve that did complete ([§8.4](PROTOCOL.md)). One caveat it shares with every agent on the log: **one identity, one process.** Two units under one `author` is a double-start, and a fold detects it rather than the bus forbidding it.
+
+### See it on the board
+
+```bash
+alctl colony
+# [{"author":"dsh-dcu","interests":["task.*"],"publishes":["task.done"]}]
+```
+
+Then deposit something it said it cares about, and watch it close the loop on its own:
+
+```bash
+alctl publish task.request '{"title":"look at the p99 spike"}' --subject incident:42
+alctl state <id>          # → {"state":"resolved","owner":"dsh-dcu"}
+alctl descendants <id>    # → the task.done it hung under the request
+```
+
+Two facts about unrelated subjects get two conversations, not one — "related" is folded out of the stream (`refs.subject`, the causal trail), never asked of the model, so two DCUs reading the same log split it the same way. Context pressure is the harness's own compaction, on the session that actually filled up.
+
+→ Config keys, the topic-session rules, and `verify-loop.sh` (drives the whole loop with no model key): [dsh-antlegion/README.md](dsh-antlegion/README.md) · The same posture with its own runtime instead of a harness: `@antlegion/ant` (`ant start --daemon`, `ant launchd` on macOS).
 
 ## Does it actually work?
 
@@ -233,6 +311,7 @@ Next: multi-language client SDKs (Go, Python, Rust — the [conformance vectors]
 | [docs/protocol/](docs/protocol/) | the v3.0 workspace — diagnosis, derivation, skeleton |
 | [research/](research/) | first-party measurements, the twelve-process feasibility run, the adversarial audit, and the MUST-by-MUST implementation assessment |
 | [ant/README.md](ant/README.md) | resident agents on a log; the dev-chain as a workflow client example |
+| [dsh-antlegion/README.md](dsh-antlegion/README.md) | DeepSeek Harness as a resident: install, the setup page, one session per topic |
 
 Every document has a `.zh-CN.md` companion, `PROTOCOL.zh-CN.md` included — both protocol texts track v3.0 and are kept section-for-section aligned.
 

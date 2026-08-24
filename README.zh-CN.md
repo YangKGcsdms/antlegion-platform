@@ -97,7 +97,27 @@ alctl descendants <id>                                            #    它引发
 
 杀掉总线，从日志重启，在任何地方再跑一遍第 3 步：同样的事实、同样的答案，逐字节一致。
 
-→ **Docker、守护进程模式、从源码跑**：[docs/CONFIGURATION.md](docs/CONFIGURATION.md) · **分步导览**：[docs/QUICKSTART.md](docs/QUICKSTART.md)
+想让它一直跑着，就按跑 Redis 的方式跑 —— 一个容器、一个卷、一个稳定的密钥：
+
+```bash
+docker run -d --name antlegion -p 28090:28090 \
+  -v antlegion-data:/data -e ANTLEGION_BUS_SECRET=change-me \
+  ghcr.io/yangkgcsdms/antlegion
+```
+
+镜像在容器内绑 `0.0.0.0` —— docker 网络就是信任边界，所以只把端口发布到你信任调用方的地方。
+那个卷就是全部的持久化：一个只追加的日志，外加（在 v3.0 这条线上）把 Δ 钉在它身上的
+`log-meta.json`，这也是为什么重启后的容器折出的是同一段历史而不是被重新解释过的历史。
+`ANTLEGION_BUS_SECRET` 要设一个稳定值并留着：不设的话总线每次启动都会新铸一把 HMAC 密钥，
+重启前写下的签名就验不过了。
+
+> [!NOTE]
+> `ghcr.io/yangkgcsdms/antlegion:latest` 和 `npx @antlegion/bus` 目前仍是 **0.4.1 / 协议 2.0**
+> 那条线，0.5.0 尚未发布（见[当前状态](#当前状态)）。今天想要一条 v3.0 总线，就从这份 checkout
+> 自己构建：仓库根执行 `docker build -t antlegion .`，然后跑那个 tag。v2.0 的日志在 v3.0 读者
+> 下读不了，所以在开始写你想留下的事实之前先定好用哪一条。
+
+→ **守护进程模式、从源码跑、完整环境变量表**：[docs/CONFIGURATION.md](docs/CONFIGURATION.md) · **分步导览**：[docs/QUICKSTART.md](docs/QUICKSTART.md)
 
 ## 从代码里用
 
@@ -143,6 +163,88 @@ alctl claim <id> && alctl resolve <id>                          # 拥有一条�
 ```
 
 → 完整动词参考、贴给 Agent 的第一条 prompt、`CLAUDE.md` / `.cursorrules` 规则片段、5 分钟双窗口实验：[docs/AGENT-CLI.md](docs/AGENT-CLI.md)
+
+## 把 Agent 托管成常驻单元（DCU 模式）
+
+上面全都是有人在驱动的 Agent。**DCU** 是另一种姿态：没有人驱动它 —— 日志驱动它。它平时闲着，
+当一条匹配它所声明关注的事实落下时被唤醒，认领这条事实（于是没有兄弟单元会重做同一件事），
+干活，再把产出挂回原事实底下。没有队列、没有调度器、没有人守在提示符前。
+
+`@antlegion/dsh` 就是 **DeepSeek Harness** 的这种姿态 —— 一个没有界面、没有任何需要人照看的
+东西的 dsh profile，所以进程能跑的地方它就能跑。
+
+### 装上
+
+```bash
+cd dsh-antlegion
+./setup-dcu-profile.sh                            # 从这份 checkout 建出一个能 boot 的 "dcu" profile
+./.dsh-launcher/node_modules/.bin/dsh --profile dcu   # 若 dsh 已在 PATH 上，直接 `dsh --profile dcu`
+```
+
+然后打开 **http://127.0.0.1:28092** 填总线地址。**Check** 跑的就是 `check.js` 那个探测，
+地址不对回来的是分类（`refused` / `dns` / `timeout` / `not-a-bus`）而不是一个转圈；**Save**
+把运行中的客户端、绑在它上面的工具、巡检和会话整体换到新地址上，不需要重启任何东西。
+地址是这个插件唯一猜不出来的东西，而在它填对之前 DCU 什么也做不了 —— 所以只有这一件事配了界面。
+
+之所以要这个脚本，是因为 `dsh plugin --profile dcu add @antlegion/dsh` 今天还跑不通：
+`@antlegion/bus@0.5.0` 尚未发布、`@deepseek-ai` 的 latest 标签指向一个自身依赖 404 的版本、
+peer 图在可接受时间内解析不完。它把三个都绕开了 —— [各自是怎么失败的](dsh-antlegion/README.md)。
+
+### 让它一直跑着
+
+它就是一个普通的长生命周期进程，交给你已经在用的进程守护即可。一份 systemd 用户单元：
+
+```ini
+# ~/.config/systemd/user/antlegion-dcu.service
+[Unit]
+Description=AntLegion DCU (DeepSeek Harness)
+After=network-online.target
+
+[Service]
+# 用绝对路径 —— setup-dcu-profile.sh 把启动器留在 checkout 里
+ExecStart=/srv/AntLegion/dsh-antlegion/.dsh-launcher/node_modules/.bin/dsh --profile dcu
+Environment=DEEPSEEK_API_KEY=…
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user enable --now antlegion-dcu
+journalctl --user -u antlegion-dcu -f          # 启动那四行，之后每唤醒一次一行
+```
+
+`Restart=always` 在这里是安全的，而通常它并不安全 —— 这正是日志带来的：session id 由
+（身份，主题）**派生**，所以重启后的 DCU 回到它原来那几段对话而不是从空白开始；而一个握着
+认领死掉的 DCU 不会把活卡住，因为每条认领在自己的 `recv` 之后 Δ 就失效，兄弟单元会接手，
+同时**不会撤销**一次真的完成了的 resolve（[§8.4](PROTOCOL.zh-CN.md)）。有一条注意事项它和
+日志上的每个 Agent 一样：**一个身份一个进程**。同一个 `author` 起两个单元就是双启动，
+而这件事是被折叠**检测**出来的，不是被总线禁止的。
+
+### 在板上看见它
+
+```bash
+alctl colony
+# [{"author":"dsh-dcu","interests":["task.*"],"publishes":["task.done"]}]
+```
+
+然后丢一条它说过自己关心的事实进去，看它自己把闭环走完：
+
+```bash
+alctl publish task.request '{"title":"看一下 p99 尖刺"}' --subject incident:42
+alctl state <id>          # → {"state":"resolved","owner":"dsh-dcu"}
+alctl descendants <id>    # → 它挂在这条请求底下的 task.done
+```
+
+两条主题无关的事实会得到两段对话而不是一段 —— 「相关」是从流里折出来的（`refs.subject`、
+因果踪迹），从不去问模型，所以读同一条日志的两个 DCU 会切得一模一样。上下文压力交给 harness
+自己的压缩，压的是真的填满了的那段会话。
+
+→ 配置键、主题会话规则、以及 `verify-loop.sh`（没有模型 key 也能把整条链路跑完）：
+[dsh-antlegion/README.md](dsh-antlegion/README.md) · 同一种姿态但用自己的运行时而不是 harness：
+`@antlegion/ant`（`ant start --daemon`，macOS 上 `ant launchd`）。
 
 ## 这东西真的成立吗？
 
@@ -232,6 +334,7 @@ cd ../ant && npm install --no-save /tmp/antlegion-bus-0.5.0.tgz
 | [docs/protocol/](docs/protocol/) | v3.0 工作区——诊断、推导、骨架 |
 | [research/](research/) | 第一手测量、十二进程可行性验证、对抗性协议审计、以及 MUST 逐条对照实现的评估 |
 | [ant/README.md](ant/README.md) | 日志上的常驻 Agent；dev-chain 作为工作流客户端示例 |
+| [dsh-antlegion/README.md](dsh-antlegion/README.md) | DeepSeek Harness 作为常驻单元：安装、配置页、一个主题一段会话 |
 
 每份文档都有 `.zh-CN.md` 伴生版，`PROTOCOL.zh-CN.md` 也在内——两份协议文本都对应 v3.0，且逐节保持对齐。
 
