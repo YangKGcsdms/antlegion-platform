@@ -124,19 +124,25 @@ publishes:
 
 ## 5. 装上去
 
-已发布：
-
 ```bash
-dsh plugin --profile dcu add @antlegion/dsh
+./setup-dcu-profile.sh          # 建出 dcu profile，指向 127.0.0.1:28090
 ```
 
-本仓库直接用（不需要发包）——链进 profile 的 `node_modules`：
+一条命令，因为手工那两行今天走不通。三个坑各有各的失败方式，值得知道：
 
-```bash
-ln -sfn "$PWD" ~/.dsh/profiles/node_modules/@antlegion/dsh
-```
+| 做法 | 为什么失败 | 脚本怎么处理 |
+|---|---|---|
+| `dsh plugin add @antlegion/dsh` | `@antlegion/dsh` 和它依赖的 `@antlegion/bus` 0.5.0 都没发布 | 从本仓库 build + pack 总线，两个一起装进 profile |
+| `add @deepseek-ai/dsh-base` | `latest` 标签指向 0.0.1-rc.1，它自己的依赖 404 | 每次安装都钉 `$DSH_LINE`（默认 `0.1.1-rc.2`） |
+| 完整 `npm install` 装 launcher | `@deepseek-ai` 预发布图的 peer 解析跑不完 | `--legacy-peer-deps`，再把运行时需要的 peer 逐个点名 |
 
-然后在 `~/.dsh/profiles/dcu/package.json` 里把它列进 bundles：
+**为什么是拷进去而不是软链。** Node 按模块的**真实路径**解析它的 import，所以软链过去的
+checkout 会在 checkout 里找 `schemastery`、`dsh-tools`、`dsh-llm` —— 拿到的是宿主已经在跑
+的那些服务的另一份副本，config 校验会落在错误的那个 `schemastery` 上。装到已发布版本本来
+就会去的位置，整类问题就不存在。真要用软链快速迭代，checkout 里就得自备每一个 peer，而你
+是在明知有重复实例的前提下这么做。
+
+profile 的 `package.json` 长这样（脚本会写好）：
 
 ```json
 {
@@ -168,6 +174,17 @@ ln -sfn "$PWD" ~/.dsh/profiles/node_modules/@antlegion/dsh
 ```bash
 dsh --profile dcu --dump-config
 ```
+
+不用模型 key 就把整条链路走完并断言结果：
+
+```bash
+./verify-loop.sh
+```
+
+它起一条总线、起 DCU，让**另一个作者**丢一条 `task.request` 进来，然后检查流应该长成的
+样子：`sys.registry → task.request → _.claim → _.resolve → task.done`（最后一条以
+`refs.parent` 挂在 `task.request` 下）。`stub-model.mjs` 只顶替「拿主意」那一步，别的都是
+真插件对真总线 —— 协调那一半才是值得证明的。
 
 ---
 

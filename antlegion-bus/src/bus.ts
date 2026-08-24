@@ -125,8 +125,11 @@ export class BusV2 {
     for (const f of report.facts) {
       this.facts.push(f);
       this.byId.set(f.id, f);
-      // §7.1: seq is restored as the MAXIMUM present, and is never reused —
-      // including after the truncation above.
+      // §11.1: seq is restored as the MAXIMUM present. For every fact the log
+      // still holds that means it is never reused. A seq the torn-tail
+      // truncation removed IS reissued — sound under fsync-per-append, where no
+      // `201` was ever returned for it, and one of the things a relaxed policy
+      // gives up. The truncation is reported through INFO either way.
       if (f.seq > this.seqCounter) this.seqCounter = f.seq;
       if (this.secretStable && !verifySig(this.secret, f)) this.sigFailures++;
       if (!f.compacted && computeId(f) !== f.id) this.idFailures++;

@@ -76,24 +76,31 @@ Three filters keep the loop sane, in this order:
 
 ## Install
 
-Published:
-
 ```bash
-dsh plugin --profile <name> add @antlegion/dsh
+./setup-dcu-profile.sh          # profile "dcu", pointed at 127.0.0.1:28090
+dsh --profile dcu               # or ./.dsh-launcher/node_modules/.bin/dsh
 ```
 
-From this checkout (no publish needed) — link it into the profile's
-`node_modules` and list it in the profile's bundles:
+That script exists because the two-line version below is the shape of the
+thing and not a working recipe today. It is worth knowing which three things
+it is working around, because each of them fails in its own direction:
 
-```bash
-ln -sfn "$PWD/dsh-antlegion" ~/.dsh/profiles/node_modules/@antlegion/dsh
-```
+| what | why it fails | what the script does |
+|---|---|---|
+| `dsh plugin add @antlegion/dsh` | neither `@antlegion/dsh` nor the `@antlegion/bus` 0.5.0 it depends on is published | builds and packs the bus from this checkout, installs both into the profile |
+| `add @deepseek-ai/dsh-base` | the `latest` tag is 0.0.1-rc.1, whose own dependencies 404 | pins `$DSH_LINE` (default `0.1.1-rc.2`) on every install |
+| a full `npm install` of the launcher | the peer graph over the `@deepseek-ai` prereleases does not resolve in reasonable time | `--legacy-peer-deps`, then names the runtime peers explicitly |
 
-Then add `"@antlegion/dsh"` to `dsh.profile.bundles` in
-`~/.dsh/profiles/<name>/package.json`.
+**Why it copies the plugin in rather than symlinking it.** Node resolves a
+module's imports from its *real* path, so a symlinked checkout finds
+`schemastery`, `dsh-tools` and `dsh-llm` in the checkout — separate copies of
+the services the host already runs, with config validation on the wrong
+`schemastery`. Installing it where a published install would put it avoids the
+whole class. If you do want the symlink for fast iteration, the checkout needs
+its own copies of every peer, and you are choosing to run duplicates.
 
-A minimal `dcu` profile is just `dsh-base` plus this bundle — no web app, no
-TUI, nothing to attend to:
+A minimal `dcu` profile is `dsh-base` plus this bundle — no web app, no TUI,
+nothing to attend to:
 
 ```json
 {
@@ -103,11 +110,29 @@ TUI, nothing to attend to:
 }
 ```
 
-Run it:
+Check the composed tree without booting, and prove the loop closes:
 
 ```bash
-dsh --profile dcu
+dsh --profile dcu --dump-config
+./verify-loop.sh
 ```
+
+`verify-loop.sh` starts a bus, starts the DCU, has a *different* author deposit
+a `task.request`, and asserts what the stream looks like afterwards:
+
+```
+  1 sys.registry   dsh-dcu-verify   {"interests":["task.*"],"publishes":["task.done"],…
+  2 task.request   human-operator   {"title":"verify the loop"}
+  3 _.claim        dsh-dcu-verify   {}
+  4 _.resolve      dsh-dcu-verify   {}
+  5 task.done      dsh-dcu-verify   {"by":"stub-model",…}          refs.parent → seq 2
+```
+
+It runs without a model key: `stub-model.mjs` answers the provider endpoint and
+plays the three turns the briefing asks for. It stands in for the *deciding*,
+and for nothing else — the patrol, the fold, the claim, the resolve and the
+causation link are the real plugin against a real bus, which is the half worth
+proving.
 
 Check the composed tree without booting:
 

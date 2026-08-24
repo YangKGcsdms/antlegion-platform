@@ -249,3 +249,31 @@ describe("§8.5 — leaving the roster", () => {
     bus.close();
   });
 });
+
+describe("M14 — unknown top-level fields are not stored", () => {
+  it("drops a field the protocol does not define, rather than persisting it", () => {
+    // The bus builds a Fact field by field, so this holds today by construction.
+    // It is tested because construction is one refactor away from `...input`,
+    // and the failure would be silent: an unknown field that round-trips is a
+    // field readers start depending on, which is how a protocol grows one.
+    const dir = tmp();
+    const bus = new BusV2({ secret: "s", dataDir: dir });
+    const { id } = bus.append({
+      type: "t", author: "a", ts: 1, payload: { keep: 1 },
+      evil: "not a protocol field", seq: 999, recv: 0,
+    } as never);
+
+    const stored = bus.get(id)!;
+    expect((stored as unknown as Record<string, unknown>).evil).toBeUndefined();
+    expect(stored.seq).toBe(1);            // bus-assigned, not client-supplied
+    expect(stored.payload).toEqual({ keep: 1 });
+    expect(Object.keys(stored).sort()).toEqual(
+      ["author", "id", "payload", "recv", "refs", "seq", "sig", "ts", "type"],
+    );
+
+    // And it is not on disk either — the journal is what a replica replays.
+    bus.close();
+    const line = readFileSync(logPath(dir), "utf-8").trim().split("\n")[0];
+    expect(line).not.toContain("evil");
+  });
+});
