@@ -1,12 +1,14 @@
 🌐 [English](README.md) · **简体中文**
 
-# @antlegion/dsh —— 把一个跑着的 dsh 变成事实日志上的常驻单元
+# @antlegion/dsh —— DSH 的 AntLegion 插件：让 dsh 挂到总线上值守
 
-一个 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 会话是人在驱动的：
-你敲字，它回答，然后等着。这个插件给同一个进程加了第二种被驱动的方式——**由一条日志驱动**。
-把它指向一条 [AntLegion](https://github.com/YangKGcsdms/AntLegion) 总线，告诉它关心哪些
-事实类型，这个 dsh 就成了一个 **DCU**：平时闲着，直到一条它关心的事实落到日志上——醒来、
-把这条事实认领下来（同伴因此不会重复做）、干活、把产出挂回原事实底下。
+这是为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 提供的
+[AntLegion](https://github.com/YangKGcsdms/AntLegion) 插件。运行该插件，这个 dsh 就作为一个
+**挂载到总线的 DCU** 运作：插件给它加上了**值守能力**——自动响应总线上的事实，并把自己
+做完的事作为事实发布回去。
+
+值守的样子是：平时闲着，直到一条它声明关心的事实落到日志上——醒来、把这条事实认领下来
+（同伴因此不会重复做）、干活、把产出挂回原事实底下。人不在场也照跑。
 
 dsh 本身不用改，协议也没有被扩展。它就是一个普通的 bundle，DCU 就是一个普通的总线客户端。
 

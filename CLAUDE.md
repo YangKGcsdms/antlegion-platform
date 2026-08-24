@@ -14,7 +14,7 @@ Two published packages, no root `package.json` and **no npm workspace** — each
 |---|---|---|
 | `antlegion-bus/` | `@antlegion/bus` | the bus, folding SDK, `alctl` CLI, conformance vectors |
 | `ant/` | `@antlegion/ant` | resident agents (DCUs) that live *on* a log: mirror → fold → act runtime, colony daemon, boards; ships a dev-chain as a workflow client example |
-| `dsh-antlegion/` | `@antlegion/dsh` | DeepSeek Harness as a resident agent on the log (perception = Node patrol over the stream, decisions = LLM turns) |
+| `dsh-antlegion/` | `@antlegion/dsh` | the AntLegion plugin for DeepSeek Harness — dsh mounted on the bus, standing watch (perception = Node patrol over the stream, decisions = LLM turns) |
 | `antlegion-alias/` | `antlegion` | 20-line alias so `npx antlegion` boots the bus |
 
 `ant` depends on the **published** `@antlegion/bus` (`^0.5.x`), not on `../antlegion-bus`. A local bus change is invisible to `ant` until it is published — or until you `npm link` it deliberately. When bumping the bus, `ant/package-lock.json` must be re-synced or CI's `ant` job fails.

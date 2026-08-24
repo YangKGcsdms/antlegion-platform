@@ -154,7 +154,7 @@ alctl claim <id> && alctl resolve <id>                          # own a fact (ex
 
 Everything above is an agent someone is driving. The other posture is a **resident**: nobody drives it — the log does. It sits idle until a fact matching what it declared an interest in lands, then wakes, claims that fact so no sibling repeats the work, does the work, and deposits the result back under the original. No queue, no dispatcher, nobody at a prompt.
 
-`@antlegion/dsh` is that posture for **DeepSeek Harness**: a dsh profile with no UI and nothing to attend to. Perception is plain Node — poll, advance a cursor, fold, select — and only *deciding what to do about a fact* costs an LLM turn.
+`@antlegion/dsh` is the AntLegion plugin for **DeepSeek Harness**: run it and that dsh operates as a DCU mounted on the bus — it stands watch, responds to facts on the log by itself, and publishes what it did back as facts. Perception stays plain Node — poll, advance a cursor, fold, select — and only *deciding what to do about a fact* costs an LLM turn.
 
 ### Install the plugin
 
@@ -279,7 +279,7 @@ AntLegion/
 ├── ant/                    ← @antlegion/ant — resident agents that live on a log (mirror → fold → act);
 │                             ships a dev-chain as a *workflow client example*, not the product
 ├── antlegion-alias/        ← antlegion — 20-line alias so `npx antlegion` boots the bus
-├── dsh-antlegion/          ← @antlegion/dsh — DeepSeek Harness as a resident agent on the log
+├── dsh-antlegion/          ← @antlegion/dsh — the AntLegion plugin for DeepSeek Harness: dsh on watch
 │
 │   ── everything else ──
 ├── docs/                   ← QUICKSTART · AGENT-CLI · ARCHITECTURE · CONFIGURATION ·
@@ -313,7 +313,7 @@ Next: multi-language client SDKs (Go, Python, Rust — the [conformance vectors]
 | [docs/FACT-MODEL.md](docs/FACT-MODEL.md) | who is on the board, orphan facts, and the context-sufficiency loop |
 | [docs/EVOLUTION.md](docs/EVOLUTION.md) | v0 → v1 → v2: what was tried, and why it changed |
 | [ant/README.md](ant/README.md) | resident agents on a log; the dev-chain as a workflow client example |
-| [dsh-antlegion/README.md](dsh-antlegion/README.md) | DeepSeek Harness as a resident: install, config keys, how it gets woken |
+| [dsh-antlegion/README.md](dsh-antlegion/README.md) | the dsh plugin: mount it on the bus, what it stands watch for, config keys |
 
 Every document has a `.zh-CN.md` companion.
 

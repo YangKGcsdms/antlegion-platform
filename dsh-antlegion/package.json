@@ -1,7 +1,7 @@
 {
   "name": "@antlegion/dsh",
   "version": "0.1.1",
-  "description": "Run DeepSeek Harness as a DCU of AntLegion (蚂蚁军团): a resident dsh session woken by facts on the fact bus, not by a human at a prompt.",
+  "description": "The AntLegion plugin for DeepSeek Harness: run dsh as a DCU mounted on the fact bus — it stands watch, responds to facts on the log by itself, and publishes what it did back as facts.",
   "type": "module",
   "main": "index.js",
   "bin": {

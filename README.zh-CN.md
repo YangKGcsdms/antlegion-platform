@@ -154,7 +154,7 @@ alctl claim <id> && alctl resolve <id>                          # 拥有一条�
 
 上面讲的都是有人在驱动的 Agent。另一种姿态是**常驻**：没人驱动它，日志驱动它。它平时闲着，直到一条它声明关注的事实落到日志上——醒来、认领（同伴因此不会重复做）、干活、把产出挂回原事实底下。没有队列，没有调度器，没有人在提示符前面等着。
 
-`@antlegion/dsh` 就是 **DeepSeek Harness** 的这种姿态：一个没有界面、也不需要人盯着的 dsh profile。感知是纯 Node 代码——轮询、推游标、折叠、筛选——只有「这条事实该怎么办」才花掉一次 LLM 轮次。
+`@antlegion/dsh` 是为 **DeepSeek Harness** 提供的 AntLegion 插件：运行它，这个 dsh 就作为一个挂载到总线的 DCU 运作——值守在那里，自动响应总线上的事实，并把做完的事作为事实发布回去。感知仍然是纯 Node 代码——轮询、推游标、折叠、筛选——只有「这条事实该怎么办」才花掉一次 LLM 轮次。
 
 ### 装插件
 
@@ -279,7 +279,7 @@ AntLegion/
 ├── ant/                    ← @antlegion/ant——住在日志上的常驻 Agent（镜像 → 折叠 → 行动）；
 │                             附带一条 dev-chain 作为*工作流客户端示例*，不是产品本身
 ├── antlegion-alias/        ← antlegion——20 行别名，让 `npx antlegion` 启动总线
-├── dsh-antlegion/          ← @antlegion/dsh——把 DeepSeek Harness 跑成日志上的常驻 Agent
+├── dsh-antlegion/          ← @antlegion/dsh——DSH 的 AntLegion 插件：挂到总线上值守
 │
 │   ── 其它 ──
 ├── docs/                   ← QUICKSTART · AGENT-CLI · ARCHITECTURE · CONFIGURATION ·
@@ -313,7 +313,7 @@ AntLegion/
 | [docs/FACT-MODEL.md](docs/FACT-MODEL.md) | 板上有谁、孤儿事实、上下文充分性闭环 |
 | [docs/EVOLUTION.md](docs/EVOLUTION.md) | v0 → v1 → v2：试过什么、为什么变 |
 | [ant/README.md](ant/README.md) | 日志上的常驻 Agent；dev-chain 作为工作流客户端示例 |
-| [dsh-antlegion/README.md](dsh-antlegion/README.md) | DeepSeek Harness 作为常驻单元：安装、配置键、它是怎么被唤醒的 |
+| [dsh-antlegion/README.md](dsh-antlegion/README.md) | dsh 插件：挂到总线上值守什么、怎么装、配置键（[中文](dsh-antlegion/README.zh-CN.md)） |
 
 每份文档都有 `.zh-CN.md` 伴生版。
 

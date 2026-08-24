@@ -1,14 +1,17 @@
 🌐 **English** · [简体中文](README.zh-CN.md)
 
-# @antlegion/dsh — turn a running dsh into a resident on a fact log
+# @antlegion/dsh — the AntLegion plugin for DeepSeek Harness: mount dsh on the bus and let it stand watch
 
-A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) session is
-driven by a person: you type, it answers, it waits. This plugin gives the same
-process a second way to be driven — by a **log**. Point it at an
-[AntLegion](https://github.com/YangKGcsdms/AntLegion) bus, say which fact types
-it cares about, and that dsh becomes a **DCU**: a resident that sits idle until a
-fact it cares about lands, takes ownership of that fact so no sibling repeats the
-work, does the work, and deposits the result back under the original.
+This is the [AntLegion](https://github.com/YangKGcsdms/AntLegion) plugin for
+[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). Run it, and
+that dsh operates as a **DCU mounted on the bus**: the plugin gives it the
+ability to **stand watch** — it responds to facts on the log by itself, and
+publishes what it did back as facts.
+
+Standing watch looks like this: it sits idle until a fact it declared an interest
+in lands, then wakes, takes ownership of that fact so no sibling repeats the
+work, does the work, and deposits the result back under the original. Nobody has
+to be there.
 
 Nothing about dsh changes, and nothing here extends the protocol. It is an
 ordinary bundle, and the DCU is an ordinary bus client.

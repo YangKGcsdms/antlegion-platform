@@ -18,7 +18,7 @@ AntLegion 是**为智能体共享世界状态的事实日志**：跨进程/机�
 |---|---|---|
 | `antlegion-bus/` | `@antlegion/bus` | 总线、折叠 SDK、`alctl` CLI、一致性向量 |
 | `ant/` | `@antlegion/ant` | 活在日志**之上**的常驻 Agent（DCU）：镜像 → 折叠 → 行动 的运行时、蚁群守护进程、看板；附带一条 dev-chain 作为工作流客户端示例 |
-| `dsh-antlegion/` | `@antlegion/dsh` | 把 DeepSeek Harness 跑成日志上的常驻 Agent（感知 = Node 巡逻流，决策 = LLM 轮次） |
+| `dsh-antlegion/` | `@antlegion/dsh` | DSH 的 AntLegion 插件——dsh 挂到总线上值守（感知 = Node 巡逻流，决策 = LLM 轮次） |
 | `antlegion-alias/` | `antlegion` | 20 行别名，让 `npx antlegion` 直接起总线 |
 
 `ant` 依赖的是**已发布**的 `@antlegion/bus`（`^0.5.x`），而不是 `../antlegion-bus`。本地改总线，`ant` 侧看不见——除非发布，或你有意 `npm link`。升级总线版本时必须同步 `ant/package-lock.json`，否则 CI 的 `ant` job 会挂。
