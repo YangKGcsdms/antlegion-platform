@@ -21,7 +21,7 @@ AntLegion 是**为智能体共享世界状态的事实日志**：跨进程/机�
 | `dsh-antlegion/` | `@antlegion/dsh` | 把 DeepSeek Harness 跑成日志上的常驻 Agent（感知 = Node 巡逻流，决策 = LLM 轮次） |
 | `antlegion-alias/` | `antlegion` | 20 行别名，让 `npx antlegion` 直接起总线 |
 
-`ant` 依赖的是**已发布**的 `@antlegion/bus`（`^0.4.x`），而不是 `../antlegion-bus`。本地改总线，`ant` 侧看不见——除非发布，或你有意 `npm link`。升级总线版本时必须同步 `ant/package-lock.json`，否则 CI 的 `ant` job 会挂。
+`ant` 依赖的是**已发布**的 `@antlegion/bus`（`^0.5.x`），而不是 `../antlegion-bus`。本地改总线，`ant` 侧看不见——除非发布，或你有意 `npm link`。升级总线版本时必须同步 `ant/package-lock.json`，否则 CI 的 `ant` job 会挂。
 
 `PROTOCOL.md` 是**权威规范**；其 §3 折叠规则是规范性的（意义住在那里，因为总线无状态）。请保持 `PROTOCOL.md` 与 `antlegion-bus/src/` 同步。（早期的 v1——可变状态总线 + 独立 MCP 包——已被移除；见 `docs/EVOLUTION.md` 与 git 历史。）
 

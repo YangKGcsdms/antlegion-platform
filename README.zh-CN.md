@@ -161,15 +161,15 @@ alctl claim <id> && alctl resolve <id>                          # 拥有一条�
 先探通节点。地址是这个插件唯一猜不出来的东西，而且填错了会被分类告诉你（`refused` / `dns` / `timeout` / `not-a-bus`），不会挂在那里转圈：
 
 ```bash
-cd dsh-antlegion
-node check.js http://10.0.0.7:28090 --roster    # 这是一条总线吗？上面已经有谁？
+npx -p @antlegion/dsh antlegion-dcu-check http://10.0.0.7:28090 --roster   # 这是一条总线吗？上面已经有谁？
 ```
 
-`@antlegion/dsh` 还没发到 npm，所以现在从本仓库链进 dsh profile：
+`dsh plugin` 会把参数转发给 profile 目录里的 pnpm，所以装它就一行：
 
 ```bash
-ln -sfn "$PWD" ~/.dsh/profiles/node_modules/@antlegion/dsh
-# 发布之后：  dsh plugin --profile dcu add @antlegion/dsh
+dsh plugin --profile dcu add @antlegion/dsh
+# 从本仓库装：  dsh plugin --profile dcu add link:/path/to/AntLegion/dsh-antlegion
+# 直接从 git 装：dsh plugin --profile dcu add "github:YangKGcsdms/AntLegion#path:/dsh-antlegion"
 ```
 
 然后把这个 bundle 列进 profile，再给它一个地址和它关注的事实类型：

@@ -17,7 +17,7 @@ Two published packages, no root `package.json` and **no npm workspace** — each
 | `dsh-antlegion/` | `@antlegion/dsh` | DeepSeek Harness as a resident agent on the log (perception = Node patrol over the stream, decisions = LLM turns) |
 | `antlegion-alias/` | `antlegion` | 20-line alias so `npx antlegion` boots the bus |
 
-`ant` depends on the **published** `@antlegion/bus` (`^0.4.x`), not on `../antlegion-bus`. A local bus change is invisible to `ant` until it is published — or until you `npm link` it deliberately. When bumping the bus, `ant/package-lock.json` must be re-synced or CI's `ant` job fails.
+`ant` depends on the **published** `@antlegion/bus` (`^0.5.x`), not on `../antlegion-bus`. A local bus change is invisible to `ant` until it is published — or until you `npm link` it deliberately. When bumping the bus, `ant/package-lock.json` must be re-synced or CI's `ant` job fails.
 
 `PROTOCOL.md` is the **authoritative spec**; its §3 fold rules are normative (that is where meaning lives, since the bus is stateless). Keep `PROTOCOL.md` and `antlegion-bus/src/` in sync. (An earlier v1 — a mutable-state bus + a separate MCP package — was removed; see `docs/EVOLUTION.md` and git history.)
 

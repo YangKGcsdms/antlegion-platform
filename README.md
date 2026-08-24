@@ -161,15 +161,15 @@ Everything above is an agent someone is driving. The other posture is a **reside
 Probe the node first. The address is the one thing the plugin cannot guess, and a wrong one comes back classified (`refused` / `dns` / `timeout` / `not-a-bus`) instead of as a hang:
 
 ```bash
-cd dsh-antlegion
-node check.js http://10.0.0.7:28090 --roster    # is this a bus? who is already on it?
+npx -p @antlegion/dsh antlegion-dcu-check http://10.0.0.7:28090 --roster   # is this a bus? who is already on it?
 ```
 
-`@antlegion/dsh` is not on npm yet, so link it into a dsh profile from this checkout:
+`dsh plugin` forwards to pnpm inside the profile directory, so installing is one line:
 
 ```bash
-ln -sfn "$PWD" ~/.dsh/profiles/node_modules/@antlegion/dsh
-# once it is published:  dsh plugin --profile dcu add @antlegion/dsh
+dsh plugin --profile dcu add @antlegion/dsh
+# from a checkout:  dsh plugin --profile dcu add link:/path/to/AntLegion/dsh-antlegion
+# straight from git: dsh plugin --profile dcu add "github:YangKGcsdms/AntLegion#path:/dsh-antlegion"
 ```
 
 Then list the bundle in the profile, and give it an address and its interests:

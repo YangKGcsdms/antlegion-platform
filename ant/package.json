@@ -1,6 +1,6 @@
 {
   "name": "@antlegion/ant",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Resident agents (DCUs — Domain Control Units) on the AntLegion shared world-state log: each mirrors the totally-ordered fact stream, re-folds its view of the world, wakes on the facts it cares about, and deposits what it did. Ships a dev-chain as a workflow client example, plus boards.",
   "type": "module",
   "main": "dist/main.js",
@@ -55,7 +55,7 @@
   "author": "Carter.Yang",
   "license": "MIT",
   "dependencies": {
-    "@antlegion/bus": "^0.4.0",
+    "@antlegion/bus": "^0.5.0",
     "@mariozechner/pi-ai": "^0.73.1"
   },
   "devDependencies": {
