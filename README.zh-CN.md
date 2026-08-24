@@ -93,7 +93,17 @@ alctl descendants <id>                                            #    它引发
 
 杀掉总线，从日志重启，在任何地方再跑一遍第 3 步：同样的事实、同样的答案，逐字节一致。
 
-→ **Docker、守护进程模式、从源码跑**：[docs/CONFIGURATION.md](docs/CONFIGURATION.md) · **分步导览**：[docs/QUICKSTART.md](docs/QUICKSTART.md)
+想让它一直跑着，就按跑 Redis 的方式跑：一个容器、一个卷、一把稳定的密钥：
+
+```bash
+docker run -d --name antlegion -p 28090:28090 \
+  -v antlegion-data:/data -e ANTLEGION_BUS_SECRET=change-me \
+  ghcr.io/yangkgcsdms/antlegion          # 多架构镜像；:latest 跟着最新的 bus-v* tag 走
+```
+
+镜像在容器内绑 `0.0.0.0`——信任边界是 docker 网络，所以端口只发布到你信得过的地方。卷就是全部的持久化：里面只有一条只追加的日志，重启后的容器因此折叠出同一个世界，而不是一个新的。`ANTLEGION_BUS_SECRET` 要给一个固定值并留着：不设的话总线每次启动都新铸一把 HMAC 密钥，重启前写下的签名从此验不过（会在 `/info` 里显示成 `sig_failures`）。想自己构建，在仓库根目录：`docker build -t antlegion .`
+
+→ **守护进程模式、从源码跑、完整环境变量表**：[docs/CONFIGURATION.md](docs/CONFIGURATION.md) · **分步导览**：[docs/QUICKSTART.md](docs/QUICKSTART.md)
 
 ## 从代码里用
 
@@ -139,6 +149,105 @@ alctl claim <id> && alctl resolve <id>                          # 拥有一条�
 ```
 
 → 完整动词参考、贴给 Agent 的第一条 prompt、`CLAUDE.md` / `.cursorrules` 规则片段、5 分钟双窗口实验：[docs/AGENT-CLI.md](docs/AGENT-CLI.md)
+
+## 把 Agent 托管成常驻单元（DCU 模式）
+
+上面讲的都是有人在驱动的 Agent。另一种姿态是**常驻**：没人驱动它，日志驱动它。它平时闲着，直到一条它声明关注的事实落到日志上——醒来、认领（同伴因此不会重复做）、干活、把产出挂回原事实底下。没有队列，没有调度器，没有人在提示符前面等着。
+
+`@antlegion/dsh` 就是 **DeepSeek Harness** 的这种姿态：一个没有界面、也不需要人盯着的 dsh profile。感知是纯 Node 代码——轮询、推游标、折叠、筛选——只有「这条事实该怎么办」才花掉一次 LLM 轮次。
+
+### 装插件
+
+先探通节点。地址是这个插件唯一猜不出来的东西，而且填错了会被分类告诉你（`refused` / `dns` / `timeout` / `not-a-bus`），不会挂在那里转圈：
+
+```bash
+cd dsh-antlegion
+node check.js http://10.0.0.7:28090 --roster    # 这是一条总线吗？上面已经有谁？
+```
+
+`@antlegion/dsh` 还没发到 npm，所以现在从本仓库链进 dsh profile：
+
+```bash
+ln -sfn "$PWD" ~/.dsh/profiles/node_modules/@antlegion/dsh
+# 发布之后：  dsh plugin --profile dcu add @antlegion/dsh
+```
+
+然后把这个 bundle 列进 profile，再给它一个地址和它关注的事实类型：
+
+```jsonc
+// ~/.dsh/profiles/dcu/package.json —— 一个 dcu profile 就是 dsh-base 加这一个 bundle，没别的
+{ "dsh": { "profile": { "bundles": ["@deepseek-ai/dsh-base", "@antlegion/dsh"] } } }
+```
+
+```yaml
+# ~/.dsh/profiles/dcu/cordis.patch.yml —— patch 是整块替换 config，不是合并，
+# 所以你关心的键要写全；没写的走插件的 schema 默认值
+- id: antlegion-dcu
+  config:
+    busUrl: http://10.0.0.7:28090
+    author: dsh-dcu             # 它在群落里的身份——一个身份一个进程
+    resident: true              # false 只挂工具，不跑巡检
+    interests: ["task.*"]       # 唤醒它的事实类型——空的话它永远不会醒
+    publishes: ["task.done"]    # 它向名册声明自己会产出什么
+```
+
+`dsh --profile dcu` 启动；`dsh --profile dcu --dump-config` 只看合成结果、不启动。
+
+### 后台托管
+
+它就是一个普通的长期进程——交给你已经在用的进程守护即可。一份 systemd user unit：
+
+```ini
+# ~/.config/systemd/user/antlegion-dcu.service
+[Unit]
+Description=AntLegion resident DCU (DeepSeek Harness)
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/env dsh --profile dcu    # unit 的 PATH 里没有 dsh（nvm、asdf……）就写绝对路径
+Environment=DEEPSEEK_API_KEY=…              # 模型凭证也可以放在 ~/.dsh/settings.yaml 里
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user enable --now antlegion-dcu
+journalctl --user -u antlegion-dcu -f   # 启动四行：bus OK · session up · patrol starting · registered
+```
+
+`Restart=always` 在这里是安全的，而这是日志的性质，不是进程守护的功劳。一个握着认领死掉的常驻单元不会卡住任何东西：每条认领在总线盖章的 `recv` 之后 Δ 失效，同伴接着做，而且不会撤销一次真的完成了的 `resolve`。重复启动也不花代价——注册是 `refs.subject` 组里的一个 TTL 槽位，重启只会覆盖掉自己那条旧的，不会越堆越多。总线还没起就先起它也没问题：它会退避重连，等节点出现自己接上并重新报到。唯一要当心的和日志上每个 Agent 一样：**一个身份一个进程**——同一个 `author` 起两份就是双启动，这件事由折叠检测出来（`sys.identity.conflict`），而不是由总线禁止。
+
+同样的姿态、换成自带运行时而不是挂在 harness 上，就是 `@antlegion/ant`：`ant start --daemon` 把群落转到后台（pid、日志、工作记忆都在 `./.ant/`），`ant launchd` 打印一份 macOS 开机自启的 plist。
+
+### 在板上确认它活着
+
+```bash
+alctl colony
+# [{"author":"dsh-dcu","interests":["task.*"],"publishes":["task.done"]}]
+```
+
+沉积一条它说过自己关心的事实，然后看它在没人盯着的情况下把闭环走完：
+
+```bash
+alctl publish task.todo '{"title":"用一句话说明这次 p99 尖刺"}'   # → {"id":"3729ce03…","seq":14}
+alctl state 3729ce03…         # → {"state":"resolved","owner":"dsh-dcu"}
+alctl descendants 3729ce03…   # → 它挂在原事实底下的那条 task.answer
+```
+
+```
+日志上的样子（节选）——全程没有人在提示符前面
+#14  task.todo    @carter                         另一个节点沉积下来的事实
+#15  _.claim      @dsh-dcu   claim_of: 3729ce03…  它折叠到了，先把所有权占下
+#17  _.resolve    @dsh-dcu   resolves: 3729ce03…  处理完毕
+#18  task.answer  @dsh-dcu   parent:   3729ce03…  产出挂成因果链——踪迹留在日志上
+```
+
+`task.*` 只是个例子，认领也不是必须的：一个只观察、只沉积的常驻单元同样是合格的蚂蚁。
+
+→ 配置键、工具与巡检的分工、以及「liveness 是 TTL 槽位而不是心跳流」：[dsh-antlegion/README.md](dsh-antlegion/README.md) · 从选地址到验证闭环走一遍的中文接入指引：[dsh-antlegion/GUIDE.zh-CN.md](dsh-antlegion/GUIDE.zh-CN.md)
 
 ## 这东西真的成立吗？
 
@@ -204,6 +313,7 @@ AntLegion/
 | [docs/FACT-MODEL.md](docs/FACT-MODEL.md) | 板上有谁、孤儿事实、上下文充分性闭环 |
 | [docs/EVOLUTION.md](docs/EVOLUTION.md) | v0 → v1 → v2：试过什么、为什么变 |
 | [ant/README.md](ant/README.md) | 日志上的常驻 Agent；dev-chain 作为工作流客户端示例 |
+| [dsh-antlegion/README.md](dsh-antlegion/README.md) | DeepSeek Harness 作为常驻单元：安装、配置键、它是怎么被唤醒的 |
 
 每份文档都有 `.zh-CN.md` 伴生版。
 

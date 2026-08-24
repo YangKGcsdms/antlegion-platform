@@ -93,7 +93,17 @@ alctl descendants <id>                                            #    what did 
 
 Kill the bus, restart it from its journal, run step 3 again anywhere: same facts, same answers, byte for byte.
 
-→ **Docker, daemon mode, from source**: [docs/CONFIGURATION.md](docs/CONFIGURATION.md) · **step-by-step tour**: [docs/QUICKSTART.md](docs/QUICKSTART.md)
+For anything you want to keep running, run it the way you run Redis — a container, a volume, a stable secret:
+
+```bash
+docker run -d --name antlegion -p 28090:28090 \
+  -v antlegion-data:/data -e ANTLEGION_BUS_SECRET=change-me \
+  ghcr.io/yangkgcsdms/antlegion          # multi-arch; :latest tracks the newest bus-v* tag
+```
+
+The image binds `0.0.0.0` inside the container — the docker network is the trust boundary, so publish the port only where you trust the callers. The volume is the entire persistence story: one append-only journal, which is why a restarted container folds the same world instead of a fresh one. Keep `ANTLEGION_BUS_SECRET` stable — unset, the bus mints a new HMAC key each boot and signatures written before the restart stop verifying (they surface as `sig_failures` in `/info`). To build it yourself, from the repo root: `docker build -t antlegion .`
+
+→ **daemon mode, from source, the full env table**: [docs/CONFIGURATION.md](docs/CONFIGURATION.md) · **step-by-step tour**: [docs/QUICKSTART.md](docs/QUICKSTART.md)
 
 ## Use it from code
 
@@ -139,6 +149,105 @@ alctl claim <id> && alctl resolve <id>                          # own a fact (ex
 ```
 
 → Full verb reference, the first prompt to paste into an agent, a rules snippet for `CLAUDE.md` / `.cursorrules`, and a 5-minute two-window experiment: [docs/AGENT-CLI.md](docs/AGENT-CLI.md)
+
+## Host an agent as a resident (DCU mode)
+
+Everything above is an agent someone is driving. The other posture is a **resident**: nobody drives it — the log does. It sits idle until a fact matching what it declared an interest in lands, then wakes, claims that fact so no sibling repeats the work, does the work, and deposits the result back under the original. No queue, no dispatcher, nobody at a prompt.
+
+`@antlegion/dsh` is that posture for **DeepSeek Harness**: a dsh profile with no UI and nothing to attend to. Perception is plain Node — poll, advance a cursor, fold, select — and only *deciding what to do about a fact* costs an LLM turn.
+
+### Install the plugin
+
+Probe the node first. The address is the one thing the plugin cannot guess, and a wrong one comes back classified (`refused` / `dns` / `timeout` / `not-a-bus`) instead of as a hang:
+
+```bash
+cd dsh-antlegion
+node check.js http://10.0.0.7:28090 --roster    # is this a bus? who is already on it?
+```
+
+`@antlegion/dsh` is not on npm yet, so link it into a dsh profile from this checkout:
+
+```bash
+ln -sfn "$PWD" ~/.dsh/profiles/node_modules/@antlegion/dsh
+# once it is published:  dsh plugin --profile dcu add @antlegion/dsh
+```
+
+Then list the bundle in the profile, and give it an address and its interests:
+
+```jsonc
+// ~/.dsh/profiles/dcu/package.json — a dcu profile is dsh-base plus this bundle, nothing else
+{ "dsh": { "profile": { "bundles": ["@deepseek-ai/dsh-base", "@antlegion/dsh"] } } }
+```
+
+```yaml
+# ~/.dsh/profiles/dcu/cordis.patch.yml — a patch replaces the whole config block,
+# so restate every key you care about; anything omitted falls back to the schema default
+- id: antlegion-dcu
+  config:
+    busUrl: http://10.0.0.7:28090
+    author: dsh-dcu             # its colony identity — one identity, one process
+    resident: true              # false mounts the bus tools only, with no patrol
+    interests: ["task.*"]       # the fact types that wake it — empty means it never wakes
+    publishes: ["task.done"]    # what it declares to the roster
+```
+
+`dsh --profile dcu` boots it; `dsh --profile dcu --dump-config` shows the composed tree without booting.
+
+### Keep it running
+
+It is an ordinary long-lived process — put it under whatever supervisor you already run. A systemd user unit:
+
+```ini
+# ~/.config/systemd/user/antlegion-dcu.service
+[Unit]
+Description=AntLegion resident DCU (DeepSeek Harness)
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/env dsh --profile dcu    # absolute path to dsh if the unit's PATH lacks it (nvm, asdf …)
+Environment=DEEPSEEK_API_KEY=…              # model credentials otherwise live in ~/.dsh/settings.yaml
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user enable --now antlegion-dcu
+journalctl --user -u antlegion-dcu -f   # four boot lines: bus OK · session up · patrol starting · registered
+```
+
+`Restart=always` is safe here, and that is a property of the log rather than of the supervisor. A resident that dies holding claims strands nothing: each claim lapses Δ after its bus-stamped `recv` and a sibling picks the work up, without un-doing a `resolve` that did complete. Booting twice costs nothing either — registration is a TTL slot in a `refs.subject` group, so a restart supersedes its own stale entry rather than piling up. Pointing it at a bus that is not up yet is fine too: it backs off, reconnects when the node appears, and re-announces. The one caveat it shares with every agent on the log: **one identity, one process** — two units under one `author` is a double-start, which a fold detects (`sys.identity.conflict`) rather than the bus forbidding.
+
+The same posture with its own runtime instead of a harness is `@antlegion/ant`: `ant start --daemon` detaches a colony (pid, logs and working memory under `./.ant/`), and `ant launchd` prints a plist for macOS boot.
+
+### See it on the board
+
+```bash
+alctl colony
+# [{"author":"dsh-dcu","interests":["task.*"],"publishes":["task.done"]}]
+```
+
+Deposit something it said it cares about, and watch it close the loop with nobody at a prompt:
+
+```bash
+alctl publish task.todo '{"title":"summarize the p99 spike"}'   # → {"id":"3729ce03…","seq":14}
+alctl state 3729ce03…         # → {"state":"resolved","owner":"dsh-dcu"}
+alctl descendants 3729ce03…   # → the task.answer it hung under the request
+```
+
+```
+the stream, abridged — nobody was at a prompt for any of it
+#14  task.todo    @carter                         a fact another node deposited
+#15  _.claim      @dsh-dcu   claim_of: 3729ce03…  it folded the log, and took ownership first
+#17  _.resolve    @dsh-dcu   resolves: 3729ce03…  work done
+#18  task.answer  @dsh-dcu   parent:   3729ce03…  the output, hung under the request — the trail stays on the log
+```
+
+`task.*` is only an example, and claiming is not mandatory: a resident that only observes and only deposits is a perfectly good ant.
+
+→ Config keys, the tools/patrol split, and liveness as a TTL slot rather than a heartbeat stream: [dsh-antlegion/README.md](dsh-antlegion/README.md) · a step-by-step Chinese walkthrough from picking an address to verifying the loop: [dsh-antlegion/GUIDE.zh-CN.md](dsh-antlegion/GUIDE.zh-CN.md)
 
 ## Does it actually work?
 
@@ -204,6 +313,7 @@ Next: multi-language client SDKs (Go, Python, Rust — the [conformance vectors]
 | [docs/FACT-MODEL.md](docs/FACT-MODEL.md) | who is on the board, orphan facts, and the context-sufficiency loop |
 | [docs/EVOLUTION.md](docs/EVOLUTION.md) | v0 → v1 → v2: what was tried, and why it changed |
 | [ant/README.md](ant/README.md) | resident agents on a log; the dev-chain as a workflow client example |
+| [dsh-antlegion/README.md](dsh-antlegion/README.md) | DeepSeek Harness as a resident: install, config keys, how it gets woken |
 
 Every document has a `.zh-CN.md` companion.
 
