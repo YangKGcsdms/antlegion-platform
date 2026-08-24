@@ -19,6 +19,7 @@ import { createRequire } from 'node:module'
 
 import { renderProbe, probeBus, SPEAKS_PROTOCOL } from './preflight.js'
 import { createPatrol } from './patrol.js'
+import { groupBySession, sessionKeyOf, SHARED_TOPIC } from './topics.js'
 import { ClientV2, httpTransport } from '@antlegion/bus/client'
 import { colony } from '@antlegion/bus/fold'
 
@@ -163,4 +164,79 @@ test('--roster folds the roster instead of re-deriving it', async () => {
 
   assert.match(out, /legacy-speller@ant\s+wakes on \[plan\.ready\]\s+emits \[plan\.done\]/)
   assert.doesNotMatch(out, /has-left@ant/)
+})
+
+// ── which conversation a fact belongs in ────────────────────────────────────
+// Pure functions over the stream, so they are testable without a model. The
+// point of testing them is that the alternative — asking the model whether two
+// facts are related — costs a turn and makes two DCUs reading one log disagree
+// about their own history.
+
+const F = (id, refs = {}) => ({ id, type: 't', author: 'a', seq: 1, ts: 1, recv: 1, payload: {}, refs })
+const idx = (facts) => new Map(facts.map((f) => [f.id, f]))
+
+test('subject scope: a declared subject is the topic', () => {
+  assert.equal(sessionKeyOf(F('x', { subject: 'deploy:prod' }), idx([]), 'subject'), 'subject:deploy:prod')
+})
+
+test('subject scope: no subject and no ancestry means no claim of unrelatedness', () => {
+  // The conservative default. Splitting here would open a session per fact for
+  // any stream that never sets a subject — which is most of them.
+  assert.equal(sessionKeyOf(F('x'), idx([]), 'subject'), SHARED_TOPIC)
+})
+
+test('a causal trail is one topic, walked to its root', () => {
+  const root = F('root')
+  const mid = F('mid', { parent: 'root' })
+  const leaf = F('leaf', { parent: 'mid' })
+  const index = idx([root, mid, leaf])
+  assert.equal(sessionKeyOf(leaf, index, 'subject'), 'root:root')
+  assert.equal(sessionKeyOf(mid, index, 'subject'), 'root:root')
+  // The root itself declares no topic, so under `subject` it is shared…
+  assert.equal(sessionKeyOf(root, index, 'subject'), SHARED_TOPIC)
+  // …and under `root` it is its own.
+  assert.equal(sessionKeyOf(root, index, 'root'), 'root:root')
+})
+
+test('§8.2 lets a parent name a fact we do not hold — the walk stops there', () => {
+  // Not an error: append order must not determine validity, so ancestors can
+  // arrive later. The deepest fact we actually have is the root we can prove.
+  const orphan = F('leaf', { parent: 'never-seen' })
+  // The walk stops at the deepest fact we hold, which is the orphan itself —
+  // so under `subject` it has declared no topic and shares, and under `root` it
+  // is its own trail until the ancestor shows up.
+  assert.equal(sessionKeyOf(orphan, idx([orphan]), 'subject'), SHARED_TOPIC)
+  assert.equal(sessionKeyOf(orphan, idx([orphan]), 'root'), 'root:leaf')
+})
+
+test('subject wins over ancestry, so a re-parented fact stays with its subject', () => {
+  const parent = F('p')
+  const child = F('c', { parent: 'p', subject: 'host:web-3' })
+  assert.equal(sessionKeyOf(child, idx([parent, child]), 'subject'), 'subject:host:web-3')
+})
+
+test('none keeps one conversation; fact gives every fact its own', () => {
+  const f = F('x', { subject: 's' })
+  assert.equal(sessionKeyOf(f, idx([]), 'none'), SHARED_TOPIC)
+  assert.equal(sessionKeyOf(f, idx([]), 'fact'), 'fact:x')
+})
+
+test('grouping preserves bus order inside a topic and first-appearance order across them', () => {
+  const batch = [
+    F('a', { subject: 'one' }),
+    F('b', { subject: 'two' }),
+    F('c', { subject: 'one' }),
+    F('d'),
+  ]
+  const groups = groupBySession(batch, [], 'subject')
+  assert.deepEqual(groups.map((g) => g.key), ['subject:one', 'subject:two', SHARED_TOPIC])
+  assert.deepEqual(groups[0].facts.map((f) => f.id), ['a', 'c'])
+  assert.deepEqual(groups[2].facts.map((f) => f.id), ['d'])
+})
+
+test('an unrelated fact lands in a different group — this is the session switch', () => {
+  const groups = groupBySession(
+    [F('a', { subject: 'incident:42' }), F('b', { subject: 'hiring:eng-3' })], [], 'subject')
+  assert.equal(groups.length, 2)
+  assert.notEqual(groups[0].key, groups[1].key)
 })

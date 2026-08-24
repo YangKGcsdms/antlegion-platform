@@ -21,6 +21,10 @@ DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 WORK="${VERIFY_WORK:-$(mktemp -d)}"; mkdir -p "$WORK"
+# Session ids are derived from (author, topic) and sessions persist, so a
+# fixed author would have this run resume the last run's conversations. A
+# verifier that depends on leftover state is not verifying anything.
+AUTHOR="dsh-dcu-verify-$$"
 BUS="http://127.0.0.1:$PORT"
 DSH="${DSH:-$HERE/.dsh-launcher/node_modules/.bin/dsh}"
 command -v dsh >/dev/null 2>&1 && DSH="${DSH_OVERRIDE:-$(command -v dsh)}"
@@ -53,7 +57,7 @@ cat > "$WORK/verify.patch.yml" <<YML
 - id: antlegion-dcu
   config:
     busUrl: $BUS
-    author: dsh-dcu-verify
+    author: $AUTHOR
     resident: true
     interests:
       - task.*
@@ -74,21 +78,42 @@ for _ in $(seq 1 60); do grep -q "registered —" "$WORK/dcu.log" 2>/dev/null &&
 grep -q "registered —" "$WORK/dcu.log" || { grep -v "^ *at " "$WORK/dcu.log" | head -30; fail "the DCU never registered"; }
 grep -E "bus OK|resident session|patrol starting|registered —" "$WORK/dcu.log"
 
+publish() {  # <subject> <title> → prints the fact id
+  ANTLEGION_BUS_URL="$BUS" node "$ALCTL" publish task.request "{\"title\":\"$2\"}" \
+    --author human-operator --subject "$1" \
+    | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>console.log(JSON.parse(s).id))'
+}
+settled() {  # <id> → prints the folded lifecycle state
+  ANTLEGION_BUS_URL="$BUS" node "$ALCTL" state "$1" \
+    | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>console.log(JSON.parse(s).state))'
+}
+
 step "somebody else deposits a fact"
-ID=$(ANTLEGION_BUS_URL="$BUS" node "$ALCTL" publish task.request '{"title":"verify the loop"}' \
-       --author human-operator | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>console.log(JSON.parse(s).id))')
-echo "task.request $ID"
+ID=$(publish "incident:42" "verify the loop")
+echo "task.request $ID  subject incident:42"
 
 step "waiting for the DCU to close it"
-for _ in $(seq 1 60); do
-  [ "$(ANTLEGION_BUS_URL="$BUS" node "$ALCTL" state "$ID" | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>console.log(JSON.parse(s).state))')" = resolved ] && break
-  sleep 1
-done
+for _ in $(seq 1 60); do [ "$(settled "$ID")" = resolved ] && break; sleep 1; done
 
 STATE=$(ANTLEGION_BUS_URL="$BUS" node "$ALCTL" state "$ID")
 echo "state: $STATE"
 grep -q '"state":"resolved"' <<<"$STATE" || { grep -v "^ *at " "$WORK/dcu.log" | tail -20; fail "the fact was never resolved"; }
-grep -q '"owner":"dsh-dcu-verify"' <<<"$STATE" || fail "resolved by the wrong author"
+grep -q "\"owner\":\"$AUTHOR\"" <<<"$STATE" || fail "resolved by the wrong author"
+
+step "an unrelated fact — a different subject, so a different conversation"
+# The point of the split: the model should not reason about hiring with an
+# incident still in view, and the incident's context should not be spent on it.
+ID2=$(publish "hiring:eng-3" "unrelated work")
+echo "task.request $ID2  subject hiring:eng-3"
+for _ in $(seq 1 60); do [ "$(settled "$ID2")" = resolved ] && break; sleep 1; done
+[ "$(settled "$ID2")" = resolved ] || { grep -v "^ *at " "$WORK/dcu.log" | tail -20; fail "the unrelated fact was never resolved"; }
+
+grep -E "opened session|resumed session|woke topic" "$WORK/dcu.log"
+TOPICS=$(grep -oP 'woke topic \K\S+' "$WORK/dcu.log" | sort -u | wc -l)
+SESSIONS=$(grep -oP '(opened|resumed) session \K\S+' "$WORK/dcu.log" | sort -u | wc -l)
+[ "$TOPICS" -ge 2 ] || fail "both facts went to one topic — the session never switched"
+[ "$SESSIONS" -ge 2 ] || fail "only $SESSIONS session was ever opened"
+echo "→ $TOPICS topics across $SESSIONS sessions"
 
 step "the stream"
 curl -sf --noproxy '*' "$BUS/facts?since=0" | node -e '
@@ -101,10 +126,14 @@ curl -sf --noproxy '*' "$BUS/facts?since=0" | node -e '
     const need = ["sys.registry", "task.request", "_.claim", "_.resolve", "task.done"];
     const missing = need.filter((t) => !facts.some((f) => f.type === t));
     if (missing.length) { console.error("missing: " + missing.join(", ")); process.exit(1); }
-    const done = facts.find((f) => f.type === "task.done");
-    const req = facts.find((f) => f.type === "task.request");
-    if (done.refs.parent !== req.id) { console.error("task.done is not a child of task.request"); process.exit(1); }
+    const reqs = facts.filter((f) => f.type === "task.request");
+    if (reqs.length !== 2) { console.error("expected 2 task.request facts, saw " + reqs.length); process.exit(1); }
+    for (const req of reqs) {
+      const done = facts.find((f) => f.type === "task.done" && f.refs.parent === req.id);
+      if (!done) { console.error("no task.done hangs under " + req.id.slice(0, 8)); process.exit(1); }
+    }
   });
 ' || fail "the stream is not the shape a closed loop leaves"
 
-printf '\n\033[32mPASS\033[0m — registered, woken by another author, claimed, resolved, published.\n'
+printf '\n\033[32mPASS\033[0m — registered, woken by another author, claimed, resolved, published,\n'
+printf '        and an unrelated fact opened its own conversation.\n'

@@ -69,7 +69,32 @@ export const Config = z.object({
   claimTimeoutSec: z.number().default(0),
   /** Most facts briefed into one turn; the rest wait for the next. */
   maxFactsPerTurn: z.number().default(5),
-  /** Pin the resident session id. Empty mints a fresh one per boot. */
+  /**
+   * Which facts share a conversation.
+   *
+   * `subject` (default) splits only where the stream says two facts are about
+   * different things — `refs.subject` first, then the causal trail root — and
+   * keeps everything that declares neither in one shared session. `root`
+   * splits by trail, so an unattached fact opens its own. `fact` gives every
+   * fact its own session. `none` is one conversation for the process, which is
+   * what this plugin did before topics existed.
+   */
+  sessionScope: z.union(['subject', 'root', 'fact', 'none']).default('subject'),
+  /**
+   * How many conversations stay live at once. The least recently used is
+   * flushed and disposed past this, so a DCU that meets thousands of topics
+   * over a month holds bounded memory rather than an agent per topic.
+   */
+  maxLiveSessions: z.number().default(3),
+  /**
+   * Reopen a topic's persisted session instead of starting it blank. Session
+   * ids are derived from the topic, so this survives restarts — the same piece
+   * of the world comes back to its own history. Needs session persistence in
+   * the profile (`dsh-session-persistence-jsonl`); without it every reopen
+   * falls through to a fresh session.
+   */
+  resumeSessions: z.boolean().default(true),
+  /** Pin one session id for everything. Implies `sessionScope: 'none'`. */
   sessionId: z.string().default(''),
   /** Working directory for the resident session. Empty uses the process cwd. */
   cwd: z.string().default(''),
@@ -127,10 +152,21 @@ export function apply(ctx, config) {
       log('WARNING: `interests` is empty — the resident session will never be woken by a fact. Set interests, e.g. ["task.*"].')
     }
 
+    // A pinned session id and a topic split are contradictory instructions:
+    // honour the explicit one and say so, rather than silently opening several
+    // conversations that all claim the same id.
+    const sessionScope = config.sessionId ? 'none' : config.sessionScope
+    if (config.sessionId && config.sessionScope !== 'none') {
+      log(`sessionId is pinned, so sessionScope '${config.sessionScope}' is ignored — one session handles every topic`)
+    }
+
     const resident = new ResidentDCU(ctx, {
       author: config.author,
       busUrl: config.busUrl,
       sessionId: config.sessionId,
+      sessionScope,
+      maxLiveSessions: config.maxLiveSessions,
+      resumeSessions: config.resumeSessions,
       cwd: config.cwd,
       maxFactsPerTurn: config.maxFactsPerTurn,
       log,
@@ -147,7 +183,7 @@ export function apply(ctx, config) {
       heartbeatSec: config.heartbeatSec,
       claimTimeout,
       log,
-      onWork: (facts) => { resident.enqueue(facts) },
+      onWork: (facts, context) => { resident.enqueue(facts, context) },
     })
 
     // Start the session first: the patrol may select work on its very first

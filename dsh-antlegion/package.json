@@ -10,6 +10,7 @@
   "files": [
     "index.js",
     "tools.js",
+    "topics.js",
     "patrol.js",
     "resident.js",
     "preflight.js",

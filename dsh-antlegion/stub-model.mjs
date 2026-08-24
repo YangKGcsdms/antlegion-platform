@@ -36,12 +36,25 @@ function factIdFrom(messages) {
   return null;
 }
 
-/** Which tools have already run, from the tool-result messages in the thread. */
-function done(messages) {
+/**
+ * Which tools have already run **for this fact**.
+ *
+ * Keyed on the fact id, not on the tool name: sessions persist and resume, so a
+ * thread routinely opens with a completed claim/resolve pair for an older fact
+ * already in it. A name-only check reads that as "already done" and the DCU
+ * answers the new fact by doing nothing.
+ */
+function done(messages, id) {
   const names = new Set();
+  if (id === null) return names;
   for (const m of messages) {
-    if (m?.role === "assistant" && Array.isArray(m.tool_calls)) {
-      for (const t of m.tool_calls) if (t?.function?.name) names.add(t.function.name);
+    if (m?.role !== "assistant" || !Array.isArray(m.tool_calls)) continue;
+    for (const t of m.tool_calls) {
+      const name = t?.function?.name;
+      if (!name) continue;
+      let args = {};
+      try { args = JSON.parse(t.function.arguments ?? "{}"); } catch { /* not ours */ }
+      if (args?.id === id) names.add(name);
     }
   }
   return names;
@@ -58,7 +71,7 @@ createServer((req, res) => {
     let messages = [];
     try { messages = JSON.parse(body).messages ?? []; } catch { /* fall through */ }
     const id = factIdFrom(messages);
-    const already = done(messages);
+    const already = done(messages, id);
 
     res.writeHead(200, {
       "content-type": "text/event-stream",
